@@ -1,0 +1,16 @@
+{
+  "name": "@voice-mode/obsidian-plugin",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Obsidian adapter for Voice Mode plugin (bundles to repo-root main.js).",
+  "license": "MIT",
+  "dependencies": {
+    "@voice-mode/core": "workspace:*",
+    "@voice-mode/browser": "workspace:*"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  }
+}

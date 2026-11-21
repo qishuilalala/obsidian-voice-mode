@@ -1,0 +1,14 @@
+{
+  "name": "@voice-mode/core",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Zero-dependency, host-agnostic speech pipeline core: Markdown/table TTS segmenter, ASR replacement dictionary, emotion tag DSL, secret redaction, and dual-protocol BYOK LLM router.",
+  "license": "MIT",
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  }
+}

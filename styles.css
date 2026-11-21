@@ -1,0 +1,187 @@
+/* Voice Mode Obsidian plugin styles
+ * Uses Obsidian semantic CSS variables with a unified .vm- class prefix.
+ */
+
+.vm-status-bar {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 8px;
+  border-radius: var(--radius-m);
+  background-color: var(--background-secondary);
+  color: var(--text-normal);
+  font-size: var(--font-ui-smaller);
+  line-height: 1.2;
+  cursor: pointer;
+  user-select: none;
+  transition: background-color 120ms ease, color 120ms ease;
+}
+
+.vm-status-bar:hover {
+  background-color: var(--background-modifier-hover);
+}
+
+.vm-status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.vm-status-dot {
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background-color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.vm-status-label {
+  color: var(--text-normal);
+  font-weight: 500;
+}
+
+.vm-is-idle .vm-status-dot {
+  background-color: var(--text-muted);
+}
+
+.vm-is-idle .vm-status-label {
+  color: var(--text-muted);
+}
+
+.vm-is-listening .vm-status-dot {
+  background-color: var(--interactive-accent);
+  animation: vm-pulse 1.4s ease-in-out infinite;
+}
+
+.vm-is-listening .vm-status-label {
+  color: var(--interactive-accent);
+}
+
+.vm-is-speaking .vm-status-dot {
+  background-color: var(--interactive-accent);
+}
+
+.vm-is-speaking .vm-status-label {
+  color: var(--text-normal);
+}
+
+.vm-is-busy .vm-status-dot {
+  background-color: var(--text-accent, var(--interactive-accent));
+  opacity: 0.75;
+}
+
+.vm-is-error .vm-status-dot {
+  background-color: var(--text-error);
+}
+
+.vm-is-error .vm-status-label {
+  color: var(--text-error);
+}
+
+@keyframes vm-pulse {
+  0%,
+  100% {
+    opacity: 1;
+    transform: scale(1);
+  }
+  50% {
+    opacity: 0.45;
+    transform: scale(0.85);
+  }
+}
+
+/* Subtitle / live transcript floating overlay with mobile safe-area clearance */
+.vm-subtitle-overlay {
+  position: fixed;
+  left: calc(16px + env(safe-area-inset-left, 0px));
+  right: calc(16px + env(safe-area-inset-right, 0px));
+  bottom: calc(36px + env(safe-area-inset-bottom, 0px));
+  z-index: var(--layer-notice, 60);
+  display: flex;
+  justify-content: center;
+  pointer-events: none;
+}
+
+.is-mobile .vm-subtitle-overlay {
+  bottom: calc(64px + env(safe-area-inset-bottom, 0px));
+}
+
+.vm-subtitle-hidden {
+  display: none;
+}
+
+.vm-subtitle-visible {
+  display: flex;
+}
+
+.vm-subtitle-card {
+  max-width: 640px;
+  width: fit-content;
+  padding: 10px 14px;
+  border-radius: var(--radius-m);
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+  box-shadow: var(--shadow-s);
+  color: var(--text-normal);
+  pointer-events: auto;
+}
+
+.vm-subtitle-role {
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  margin-bottom: 4px;
+  font-weight: 600;
+}
+
+.vm-subtitle-text {
+  font-size: var(--font-ui-small);
+  line-height: 1.45;
+  color: var(--text-normal);
+  word-break: break-word;
+}
+
+/* Settings runtime summary panel */
+.vm-runtime-banner {
+  padding: 12px 14px;
+  margin-bottom: 16px;
+  border-radius: var(--radius-m);
+  background-color: var(--background-secondary);
+  border: 1px solid var(--background-modifier-border);
+}
+
+.vm-runtime-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: baseline;
+  gap: 12px;
+  padding: 3px 0;
+  font-size: var(--font-ui-small);
+}
+
+.vm-runtime-label {
+  color: var(--text-muted);
+  flex-shrink: 0;
+}
+
+.vm-runtime-value {
+  color: var(--text-normal);
+  text-align: right;
+  font-weight: 500;
+}
+
+.vm-runtime-accent {
+  color: var(--interactive-accent);
+}
+
+.vm-cache-path {
+  font-family: var(--font-monospace);
+  font-size: var(--font-ui-smaller);
+  color: var(--text-muted);
+  word-break: break-all;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .vm-is-listening .vm-status-dot {
+    animation: none;
+  }
+}

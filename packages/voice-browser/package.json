@@ -1,0 +1,17 @@
+{
+  "name": "@voice-mode/browser",
+  "version": "0.1.0",
+  "type": "module",
+  "description": "Browser and Electron audio capture, 16kHz AudioWorklet resampler, AEC3 runtime probe, and playback queue contracts.",
+  "license": "MIT",
+  "dependencies": {
+    "@voice-mode/core": "workspace:*"
+  },
+  "exports": {
+    ".": "./src/index.ts"
+  },
+  "scripts": {
+    "typecheck": "tsc -p tsconfig.json --noEmit",
+    "test": "node --test"
+  }
+}

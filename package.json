@@ -1,0 +1,36 @@
+{
+  "name": "obsidian-voice-mode-workspace",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "Local-first offline voice dictation, spoken Markdown read-aloud, and BYOK voice mode for Obsidian, powered by shared @voice-mode/core.",
+  "license": "MIT",
+  "packageManager": "pnpm@12.21.0",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/qishuilalala/obsidian-voice-mode.git"
+  },
+  "engines": {
+    "node": ">=22.18.0"
+  },
+  "scripts": {
+    "build": "node esbuild.config.mjs production",
+    "dev": "node esbuild.config.mjs",
+    "typecheck": "pnpm -r run typecheck",
+    "lint": "eslint --max-warnings 0 .",
+    "test": "pnpm -r run test",
+    "check:release": "node scripts/check-release-gate.mjs",
+    "check:all": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build && pnpm run check:release",
+    "version": "node scripts/version-bump.mjs"
+  },
+  "devDependencies": {
+    "@types/node": "^22.13.0",
+    "esbuild": "^0.25.0",
+    "eslint": "^9.22.0",
+    "eslint-plugin-obsidianmd": "0.6.0",
+    "globals": "^16.0.0",
+    "obsidian": "1.14.4",
+    "typescript": "^5.8.0",
+    "typescript-eslint": "^8.35.1"
+  }
+}
