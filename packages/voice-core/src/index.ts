@@ -153,3 +153,21 @@ export {
   type OpenAiCompatTtsOptions,
   type MimoTtsOptions,
 } from './tts-engines.ts'
+
+export {
+  DEFAULT_ASR_OPENAI_BASE_URL,
+  DEFAULT_ASR_OPENAI_MODEL,
+  MAX_ASR_AUDIO_BYTES,
+  MAX_ASR_RESPONSE_BYTES,
+  MAX_ASR_ERROR_BYTES,
+  AsrProviderError,
+  resolveTranscriptionsEndpointUrl,
+  encodeMonoPcm16Wav,
+  buildMultipartFormData,
+  normalizeWhisperLanguage,
+  OpenAiCompatAsrTransport,
+  type AsrErrorCode,
+  type ResolvedAsrEndpoint,
+  type MultipartFilePart,
+  type OpenAiCompatAsrOptions,
+} from './asr-engines.ts'

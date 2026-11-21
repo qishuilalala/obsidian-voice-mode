@@ -1,6 +1,7 @@
 import {
   isCloudAsrEngine,
   isCloudTtsEngine,
+  resolveTranscriptionsEndpointUrl,
   type AsrEngineKind,
   type TtsEngineKind,
 } from "@voice-mode/core";
@@ -101,6 +102,21 @@ export function detectRuntimeCapabilities(
 }
 
 /**
+ * Return true when an explicit transcription endpoint URL targets a local loopback HTTP server
+ * (`127.0.0.1`, `localhost`, `[::1]`) so mobile privacy guards permit local loopback ASR.
+ */
+export function isLoopbackAsrEndpoint(asrEndpointUrl?: string): boolean {
+  if (!asrEndpointUrl || !asrEndpointUrl.trim()) {
+    return false;
+  }
+  try {
+    return resolveTranscriptionsEndpointUrl(asrEndpointUrl).isLoopbackHttp;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Guard any persisted ASR engine selection against the current runtime's capabilities.
  * Prevents a desktop-synced local WASM / daemon selection from crashing mobile hosts.
  */
@@ -108,6 +124,7 @@ export function resolveEffectiveAsrEngine(
   requested: ObsidianAsrEngine,
   capabilities: RuntimeCapabilities,
   allowCloudFallbackOnMobile = true,
+  asrEndpointUrl?: string,
 ): ObsidianAsrEngine {
   if (!capabilities.allowedAsrEngines.includes(requested)) {
     return capabilities.defaultAsrEngine;
@@ -116,7 +133,8 @@ export function resolveEffectiveAsrEngine(
     capabilities.isMobile &&
     !allowCloudFallbackOnMobile &&
     requested !== "system" &&
-    isCloudAsrEngine(requested)
+    isCloudAsrEngine(requested) &&
+    !(requested === "openai-compat" && isLoopbackAsrEndpoint(asrEndpointUrl))
   ) {
     return capabilities.defaultAsrEngine;
   }

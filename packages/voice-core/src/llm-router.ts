@@ -100,7 +100,8 @@ export function resolveLlmEndpoint(config: LlmRouterConfig): ResolvedLlmEndpoint
   const noSlash = url.pathname.replace(/\/+$/, '')
   const basePath = noSlash.endsWith(suffix) ? noSlash.slice(0, -suffix.length) : noSlash
   url.pathname = `${basePath}${suffix}`
-  return { preset: matched, protocol, baseUrl: `${url.origin}${basePath}`, url: url.toString(), model, requiresKey: matched.requiresKey }
+  const isLoopbackOverride = Boolean(config.baseUrl?.trim()) && url.protocol === 'http:'
+  return { preset: matched, protocol, baseUrl: `${url.origin}${basePath}`, url: url.toString(), model, requiresKey: isLoopbackOverride ? false : matched.requiresKey }
 }
 
 /** Merge extra headers with canonical lowercase deduplication so auth/protocol headers never duplicate. */
@@ -236,37 +237,38 @@ async function openResponse(
   }
 }
 
-/** Non-streaming chat completion returning the full assistant text. */
-export async function completeChat(config: LlmRouterConfig, req: LlmChatRequest): Promise<string> {
-  const endpoint = resolveLlmEndpoint(config)
-  const { res, ac, idleMs, cleanup } = await openResponse(config, endpoint, req, false)
+async function readJsonCompletion(
+  res: Response, ac: AbortController, idleMs: number, protocol: LlmProtocol, signal?: AbortSignal,
+): Promise<string> {
   const bodyWatch = createWatchdog(ac, idleMs)
   bodyWatch.kick()
   try {
     let raw: string
     try { raw = await res.text() } catch (err) {
       if (bodyWatch.didTimeout()) throw new LlmRouterError('timeout', `LLM response body timed out after ${idleMs} ms`)
-      if (req.signal?.aborted) throw err
+      if (signal?.aborted) throw err
       throw new LlmRouterError('network', redactSecrets(err instanceof Error ? err.message : String(err)))
     }
     let parsed: unknown
-    try { parsed = JSON.parse(raw) } catch {
-      throw new LlmRouterError('bad_response', `non-JSON response: ${redactBodySnippet(raw, 160)}`)
-    }
-    if (typeof parsed !== 'object' || parsed === null) {
-      throw new LlmRouterError('bad_response', 'JSON response root must be an object')
-    }
+    try { parsed = JSON.parse(raw) } catch { throw new LlmRouterError('bad_response', `non-JSON response: ${redactBodySnippet(raw, 160)}`) }
+    if (typeof parsed !== 'object' || parsed === null) throw new LlmRouterError('bad_response', 'JSON response root must be an object')
     const data = parsed as Record<string, unknown>
-    if (endpoint.protocol === 'anthropic-messages') {
+    if (protocol === 'anthropic-messages') {
       const blocks = Array.isArray(data.content) ? data.content : []
       return blocks
         .filter((b): b is { type: string; text: string } => typeof b === 'object' && b !== null && (b as { type?: unknown }).type === 'text' && typeof (b as { text?: unknown }).text === 'string')
-        .map((b) => b.text)
-        .join('')
+        .map((b) => b.text).join('')
     }
-    const first = (Array.isArray(data.choices) ? data.choices[0] : undefined) as { message?: { content?: unknown } } | undefined
-    return typeof first?.message?.content === 'string' ? first.message.content : ''
-  } finally { bodyWatch.stop(); cleanup() }
+    const first = (Array.isArray(data.choices) ? data.choices[0] : undefined) as { message?: { content?: unknown }; delta?: { content?: unknown } } | undefined
+    return typeof first?.message?.content === 'string' ? first.message.content : typeof first?.delta?.content === 'string' ? first.delta.content : ''
+  } finally { bodyWatch.stop() }
+}
+
+/** Non-streaming chat completion returning the full assistant text. */
+export async function completeChat(config: LlmRouterConfig, req: LlmChatRequest): Promise<string> {
+  const endpoint = resolveLlmEndpoint(config)
+  const { res, ac, idleMs, cleanup } = await openResponse(config, endpoint, req, false)
+  try { return await readJsonCompletion(res, ac, idleMs, endpoint.protocol, req.signal) } finally { cleanup() }
 }
 
 function extractSseDelta(protocol: LlmProtocol, dataLine: string): { text?: string; done?: boolean } {
@@ -289,6 +291,10 @@ function extractSseDelta(protocol: LlmProtocol, dataLine: string): { text?: stri
 export async function* streamChat(config: LlmRouterConfig, req: LlmChatRequest): AsyncGenerator<string, void, void> {
   const endpoint = resolveLlmEndpoint(config)
   const { res, ac, idleMs, cleanup } = await openResponse(config, endpoint, req, true)
+  if ((res.headers.get('content-type') ?? '').toLowerCase().includes('application/json')) {
+    try { const text = await readJsonCompletion(res, ac, idleMs, endpoint.protocol, req.signal); if (text) yield text; return }
+    finally { cleanup() }
+  }
   const reader = res.body?.getReader()
   if (!reader) { cleanup(); throw new LlmRouterError('bad_response', 'streaming response body is missing') }
   const idleWatch = createWatchdog(ac, idleMs)

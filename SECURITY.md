@@ -2,9 +2,9 @@
 
 ## Supported Versions / 支持的版本
 
-Only the latest release receives security fixes. The repository is currently at **`0.1.0` (Alpha · M0, M1 & M2 shipped on `main`)**; breaking security or storage adjustments may occur prior to `1.0.0`.
+Only the latest release receives security fixes. The repository is currently at **`0.1.0` (Alpha · M0, M1, M2 & M3 shipped on `main`)**; breaking security or storage adjustments may occur prior to `1.0.0`.
 
-仅最新版本接收安全修复。当前仓库处于 **`0.1.0`（Alpha · `main` 已落地 M0、M1 与 M2）**，在 `1.0.0` 正式版前可能发生安全边界或配置结构调整。
+仅最新版本接收安全修复。当前仓库处于 **`0.1.0`（Alpha · `main` 已落地 M0、M1、M2 与 M3）**，在 `1.0.0` 正式版前可能发生安全边界或配置结构调整。
 
 ## Reporting a Vulnerability / 报告漏洞
 
@@ -23,19 +23,24 @@ Please **do not** disclose security vulnerabilities in public GitHub issues, pul
 
 本插件**零遥测、零埋点、零崩溃上报**，启动时不会发起任何静默外联请求。
 
-### 2. Shipped Commands & Data Flows (`main` / M2 Baseline) / 当前已上线命令的数据流
+### 2. Shipped Commands & Data Flows (`main` / M3 Baseline) / 当前已上线命令的数据流
 
 - **Toggle voice dictation / Dictate single utterance** (`toggle-dictation`, `dictate-single-utterance`):
-  - **Desktop offline mode (`SenseVoice WASM`, shipped in M1)**: Runs **100% locally** inside an isolated Web Worker (`Silero VAD` + `SenseVoice int8` via `sherpa-onnx@2.0.2` WASM). Raw microphone audio and transcripts **never leave your device**, and zero outbound network calls occur during dictation.
+  - **Desktop offline mode (`SenseVoice WASM`, shipped in M1)**: Runs **100% locally** inside an isolated Web Worker (`Silero VAD` + `SenseVoice int8` via `sherpa-onnx@2.0.2` WASM). Raw microphone audio and transcripts **never leave your device** (unless you explicitly enable `Post-dictation LLM polish`), and zero outbound network calls occur during dictation.
+  - **Optional BYOK OpenAI-compatible transcription (`openai-compat`, shipped in M3)**: Only when explicitly selected by the user (and on mobile only when `Allow cloud fallback on mobile` is enabled, or when targeting a local loopback server), 16 kHz utterance WAV audio is uploaded via HTTPS (or loopback HTTP) to your configured `/audio/transcriptions` endpoint using your `SecretStorage` API key.
   - **Host browser fallback (`system`)**: When recognition engine is left on `System speech recognition`, the command uses the host runtime's native `SpeechRecognition` / `webkitSpeechRecognition` API **only if exposed by the host**. On standard desktop Obsidian Electron builds without a bundled Google Speech API key, browser recognition is unavailable (the plugin prompts you to switch to `SenseVoice WASM`); on browsers or mobile WebViews that do provide native `SpeechRecognition`, microphone audio is sent by the host runtime to that browser or OS speech service provider.
+- **Ask AI about selection or note & Post-dictation LLM polish** (`ask-ai-about-note`, `enableLlmPolish`, shipped in M3):
+  - **Disabled by default (`enableVoiceQa: false`, `enableLlmPolish: false`)**: Zero text leaves your device unless you explicitly turn these toggles on.
+  - When enabled, only the active selection (or bounded active note up to `24,000` chars) and your question—or the single dictated utterance for 4-guard polish—are sent directly to your configured OpenAI-compatible (`/chat/completions`) or Anthropic (`/messages`) endpoint (or local loopback server such as Ollama / LM Studio). On mobile, non-loopback cloud requests are blocked unless `Allow cloud fallback on mobile` is enabled.
 - **Read selection or note aloud** (`read-aloud`, `pause-resume-read-aloud`, `skip-read-aloud-sentence`, `stop-read-aloud`):
   - **System speech (`system`, default)**: Uses the host's native `window.speechSynthesis` API (zero plugin network calls; uses local OS voices or whatever voice provider your OS/browser is configured with). Hands-free barge-in is locked to `manual` because OS speech synthesis bypasses Chromium's echo canceller.
   - **Desktop local offline VITS (`vits-wasm`, shipped in M2)**: Synthesizes speech **100% locally** in an isolated Web Worker (`csukuangfj/sherpa-onnx-vits-zh-ll`) with zero outbound network calls; when `bargeInMode` is `detect` or `auto` and native AEC3 is active, local `Silero VAD` monitors microphone audio locally (`autoGainControl: false`) to stop playback on voice interruption without uploading audio anywhere.
-  - **Optional BYOK cloud TTS (`openai-compat`, `mimo`, shipped in M2)**: Only when explicitly selected by the user, cleaned sentence text is sent over HTTPS (or loopback HTTP for self-hosted servers) to your configured `/audio/speech` endpoint (e.g. SiliconFlow, OpenRouter, OpenAI, Groq, local loopback) or Xiaomi MiMo (`https://api.xiaomimimo.com/v1/chat/completions`).
+  - **Optional BYOK cloud TTS (`openai-compat`, `mimo`, shipped in M2)**: Only when explicitly selected by the user (and gated on mobile by `Allow cloud fallback on mobile`), cleaned sentence text is sent over HTTPS (or loopback HTTP for self-hosted servers) to your configured `/audio/speech` endpoint or Xiaomi MiMo (`https://api.xiaomimimo.com/v1/chat/completions`).
 
 当前已上线命令的数据流说明：
 
-- **切换听写 / 单句听写**（`toggle-dictation`、`dictate-single-utterance`）：桌面 `SenseVoice WASM` 模式 **100% 本地运行**、零网络外联；保持 `system` 时仅在宿主暴露原生 `SpeechRecognition` 时调用。
+- **切换听写 / 单句听写**（`toggle-dictation`、`dictate-single-utterance`）：桌面 `SenseVoice WASM` 模式 **100% 本地运行**、零网络外联；选用 `openai-compat` 时仅将切分后的 16 kHz WAV 直连上传至用户配置的 `/audio/transcriptions` 端点（移动端额外受 `Allow cloud fallback on mobile` 开关约束）；保持 `system` 时仅在宿主暴露原生 `SpeechRecognition` 时调用。
+- **选区/笔记语音问答与听写后润色**（`ask-ai-about-note`、`enableLlmPolish`，默认关闭）：仅在用户显式开启后，才会将当前选区（或上限 `24,000` 字符的当前笔记）与问题，或待 4 层防幻觉润色的单句转写文本直连发往用户配置的模型端点（支持本地回环 Ollama / LM Studio 免密运行）。
 - **朗读选区/笔记与播控**（`read-aloud` 等）：默认 `system` 调用宿主 `window.speechSynthesis`（强制锁定 `manual` 打断）；桌面可选 `vits-wasm` **100% 本地离线合成**（配合本地 `Silero VAD` 原生 AEC3 语音打断，音频绝不外传）；仅在用户显式选用 `openai-compat` 或 `mimo` 时才会将清洗后的句子直连发往用户配置的 TTS 端点。
 
 ### 3. Explicit External Model Downloads (Desktop, Shipped in M1/M2) / 桌面离线模型显式下载与隔离（M1/M2 已上线）
@@ -46,9 +51,9 @@ Please **do not** disclose security vulnerabilities in public GitHub issues, pul
 - Every downloaded archive and extracted file is verified against **pinned SHA256 digests**, hop-by-hop redirect host allowlists (blocking HTTP downgrades and unapproved hosts), and strict USTAR tar path-traversal / link rejection before activation.
 - All verified assets (`245.3 MB` dictation stack; optional `116.1 MB` VITS bundle) are stored **strictly outside your Obsidian Vault** (`~/.cache/voice-mode/models/` on macOS, `$XDG_CACHE_HOME/voice-mode/models/` or `~/.cache/voice-mode/models/` on Linux, `%LOCALAPPDATA%\voice-mode\models\` on Windows, or a canonicalized user-specified external directory rejected if inside the Vault) so large binaries never pollute Obsidian Sync, iCloud, or Git repositories.
 
-### 4. Optional BYOK Cloud Endpoints (BYOK TTS Shipped in M2; BYOK LLM Q&A & STT Planned M3) / 可选自带密钥（BYOK）云端能力
+### 4. Optional BYOK Cloud Endpoints (BYOK TTS, STT & LLM Q&A/Polish Shipped in M2–M3) / 可选自带密钥（BYOK）云端能力
 
-- Outbound requests to cloud TTS, STT, or LLM providers occur **only if you explicitly configure a provider and invoke a BYOK command** (including on mobile where heavy WASM models are disabled).
+- Outbound requests to cloud TTS, STT, or LLM providers occur **only if you explicitly configure a provider and invoke a BYOK command** (and on mobile only when `Allow cloud fallback on mobile` is enabled).
 - Requests are sent directly from your Obsidian client to the endpoint you configured (using native `fetch` with `redirect: 'error'`, or desktop zero-redirect Node HTTPS / mobile `requestUrl` when `Origin: app://obsidian.md` is blocked by provider CORS); this project operates **no relay server** and never sees your notes, audio, or API keys.
 
 ---

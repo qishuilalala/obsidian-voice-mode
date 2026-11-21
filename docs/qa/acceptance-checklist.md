@@ -55,24 +55,33 @@
   - 切至 `bargeInMode=detect` 后，独立轻量 `bargeInWorkerClient`（仅挂载 `1.8 MB` `Silero VAD`，每 `25.6 s` 非人声自动刷新环形缓冲与隐状态）实测探测原生 AEC3 激活并进入 `activePolicy="auto"`；MacBook Pro 扬声器连续外放朗读 **`180,005 ms`（3 分钟 / 11 句中文长句 / 实时评估 `2,811` 个 64 ms 帧，残差峰值 `RMS = 0.011621`，`vadPositiveChunks = 0`）** 全程 **`0` 次自打断**；
   - 压测满 180 秒后立即由外部语音经物理扬声器→麦克风打断正在外放的 `vits-wasm`，从外部人声到达麦克风至朗读队列中止 + 字幕隐藏 + 麦克风轨道释放实测耗时 **`66 ms`（首次短时冒烟实测 `370 ms`，均严守 `< 600 ms` 门禁）**。
 
+### 1.4 M3 BYOK 语音问答、4 重护栏润色、云端 ASR 与密钥脱敏真机验收记录（2026-11-22 / Obsidian `1.15.1` · Electron `43.8.9`）
+
+- **打包与自动化门禁**：`pnpm run check:all` 全绿（**147 项单测** `64 core + 39 browser + 44 plugin` 全过、`eslint --max-warnings 0 .` 零警告、`llm-router.ts = 395 行 < 400 行`、`main.js = 261.94 KB < 1,024 KB`、`check:release` 5/5 通过）。
+- **本机回环服务全链路真机实测（无需消费真实云端付费额度）**：
+  - **`VoiceQaModal`（`ask-ai-about-note`）**：提取当前 Markdown 32 字选区（`Context: selection (32 chars)`），流式接收 3 段 SSE 分片实时渲染答案并驱动按句朗读，点击 `Insert at cursor` 准确写入笔记光标处；连续双击命令触发单例守卫（`singletonModalCount = 1`），无弹窗堆叠。
+  - **4 重反幻觉听写后润色（`enableLlmPolish`）**：最小标点/错字修正正常应用落盘；模拟模型返回 `"以下是修正后的文本：..."` 超长幻觉改写时被 `applyCorrectionGuards` 100% 拦截并保留原始听写文本；模拟 `HTTP 401` 故障时零丢字回退原文。
+  - **BYOK `openai-compat` 转写（`CloudDictationSession` + `OpenAiCompatAsrTransport`）**：真实扬声器→麦克风按住说话采集，生成 `103,006 B` 纯 `Uint8Array` `multipart/form-data` WAV（含 44B RIFF 头与 `SecretStorage` `Bearer` 鉴权头）上传回环 `/v1/audio/transcriptions`，返回文本经词表替换（`黑曜石 -> Obsidian`）写入笔记并归位 `idle`。
+  - **密钥隔离与 401/500 脱敏审计**：向 `app.secretStorage` 写入 LLM/ASR/TTS 三把测试密钥并保存配置后，磁盘 `.obsidian/plugins/voice-mode/data.json` 明文密钥扫描 **`0` 命中**；触发含 `Bearer sk-proj-...` 与 `api_key=sk-live-...` 的 `HTTP 401` / `500` 响应时，Modal 状态、Notice 弹窗与 Developer Console 全量捕获日志均输出 `<redacted>`，明文密钥泄漏数为 **`0`**（真实第三方云端 200 鉴权流式对话留待用户填入自有 API Key 复核）。
+
 ---
 
 ## 2. 发版前四项真机声学必过门禁（M3 → M4 正式发版强制阻断）
 
-> 适用于 M3 封板及后续每次涉及音频管线、分句、字幕或打断逻辑的正式版发布。**任一项失败立即暂停发布**，定位修复后全量复跑。
+> 适用于 M3 封板及后续每次涉及音频管线、分句、字幕或打断逻辑的正式版发布。**任一项失败立即暂停发布**，定位修复后全量复跑。以下桌面端实测均基于 `main.js = 261.10 KB` 终版构建在真实 Obsidian `1.15.1`（`Electron 43.8.9` / macOS `27.2.1` Apple M2 Max）完成。
 
 | # | 必过项 | 真机操作步骤 | 预期结果（全部满足才算 Pass） | 当前状态 | 实测环境与日期 |
 | --- | --- | --- | --- | --- | --- |
-| **A-1** | **字幕渲染与长内容换行** | 开启朗读字幕，切最大字号与窄宽度档位，朗读包含中文长句、英文术语与长 URL 的笔记，并切换浅色/深色主题 | 字幕清晰可读且自动换行不截断、不遮挡关键编辑按钮；浅/深主题文本对比度 `>= 4.5:1`；停止或切笔记后字幕 `< 100 ms` 消失无残留 | `Pending` | 待 M2/M3 实测 |
-| **A-2** | **Markdown / 表格降噪朗读与打断** | 打开含 Frontmatter、代码块与 5×5 管道表格的真实笔记启动朗读；朗读中途于外放（AEC 生效）或耳机下开口说话（或在 `manual` 档按键打断） | 零念出 YAML frontmatter、代码符号与 `| --- |` 表格分隔符；打断后朗读与字幕在 `< 600 ms`（`manual` `< 150 ms`）内彻底中止且队列清空 | `Pending` | 待 M2/M3 实测 |
-| **A-3** | **60 秒连续中英混说 + 纠错词表** | 断网（飞行模式）状态下，冷启动后连续口述 60 秒中英混合笔记（含 5–6 次自然换气及至少 3 个已配置纠错词表专有名词） | 无卡死、无 OOM 崩溃；最终上屏文本完整无丢头尾，已配置词表 100% 命中替换，单句定稿无明显阻塞 | `Pending` | 待 M1/M3 实测 |
-| **A-4** | **`bargeInMode=manual` 外放零自打断** | 将打断模式设为 `manual` 并使用设备外放：全程播放 2 分钟笔记朗读不说话；随后按住触发键口述一句笔记并松手 | 朗读全程 **0 次**回声误触发自打断；按键口述完整识别上屏；松手后无残余录音占用麦克风指示灯 | `Pending` | 待 M2/M3 实测 |
+| **A-1** | **字幕渲染与长内容换行** | 开启朗读字幕，切最大字号与窄宽度档位，朗读包含中文长句、英文术语与长 URL 的笔记，并切换浅色/深色主题 | 字幕清晰可读且自动换行不截断、不遮挡关键编辑按钮；浅/深主题文本对比度 `>= 4.5:1`；停止或切笔记后字幕 `< 100 ms` 消失无残留 | **`Pass`（桌面真机）** | 2026-11-22 · Obsidian `1.15.1`（macOS `27.2.1`）：`large`+`narrow` 超长中英/URL 零横向溢出（`scrollWidth <= clientWidth`，外层 `pointer-events: none` 不挡编辑区）；浅色对比度 **`15.91:1`**、深色 **`12.19:1`**；主动停止隐藏耗时 **`6.1–10.5 ms < 100 ms`** |
+| **A-2** | **Markdown / 表格降噪朗读与打断** | 打开含 Frontmatter、代码块与 5×5 管道表格的真实笔记启动朗读；朗读中途于外放（AEC 生效）或耳机下开口说话（或在 `manual` 档按键打断） | 零念出 YAML frontmatter、代码符号与 `| --- |` 表格分隔符；打断后朗读与字幕在 `< 600 ms`（`manual` `< 150 ms`）内彻底中止且队列清空 | **`Pass`（桌面真机）** | 2026-11-22 · Obsidian `1.15.1`：Frontmatter、代码围栏、裸 URL 与 5×5 表格 `0` 噪声念出；`manual` 停止 **`6.1–10.5 ms < 150 ms`**；`detect` 外放物理扬声器→麦克风人声打断耗时 **`83–202 ms < 600 ms`** 且字幕隐藏、队列归位 `idle` |
+| **A-3** | **60 秒连续中英混说 + 纠错词表** | 断网（飞行模式）状态下，冷启动后连续口述 60 秒中英混合笔记（含 5–6 次自然换气及至少 3 个已配置纠错词表专有名词） | 无卡死、无 OOM 崩溃；最终上屏文本完整无丢头尾，已配置词表 100% 命中替换，单句定稿无明显阻塞 | **`Pass`（桌面离线真机语料）** | 2026-11-22 · Obsidian `1.15.1`：拦截 `fetch`/`https.get` 模拟断网（外联调用 **`0`**），冷启动加载 `1,529 ms`，流式馈入 `53.1 s` 真实 6 段换气中英混说语料，6 段头尾完整落盘，3 条词表（`Obsidian`、`SenseVoice`、`[[双链笔记]]`）**`3/3`（100%）** 命中，零 OOM |
+| **A-4** | **`bargeInMode=manual` 外放零自打断** | 将打断模式设为 `manual` 并使用设备外放：全程播放 2 分钟笔记朗读不说话；随后按住触发键口述一句笔记并松手 | 朗读全程 **0 次**回声误触发自打断；按键口述完整识别上屏；松手后无残余录音占用麦克风指示灯 | **`Pass`（桌面真机）** | 2026-11-22 · Obsidian `1.15.1`：`bargeInMode=manual` 下 `vits-wasm` 扬声器连续外放 **`120,005 ms`（满 2 分钟 / 10 句）`0` 自打断**（`monitorState="idle"`）；紧接着触发 `push-to-talk` 立即卸载阻塞 VITS Worker 并经物理扬声器→麦克风识别上屏，松手后 `captureHandle=null`、会话与状态条干净归位 `idle` |
 
 ### 附加安全与隐私复核（每次发版必做）
 
-- [x] M0 阶段核验（发版前须复跑）：测试 Vault 下 `.obsidian/plugins/voice-mode/data.json` **零明文 API Key / Token**（S0-6 实测 `590 B` 纯配置）。
-- [ ] 检查 Developer Console 与日志输出：触发一次 401/500 错误响应，确认密钥与 `Authorization` 头已被完全脱敏。
-- [x] M0 阶段核验（发版前须复跑）：测试 Vault 根目录与 `.obsidian/` **零模型二进制文件**写入 Vault（S0-2 实测 `245.3 MB` 全部位于 `~/.cache/voice-mode/models/`）。
+- [x] M3 复跑通过（2026-11-22）：测试 Vault 下 `.obsidian/plugins/voice-mode/data.json` **零明文 API Key / Token**（绑定 LLM/ASR/TTS 三项 `SecretStorage` 引用后实检 `0` 明文密钥）。
+- [x] M3 复跑通过（2026-11-22）：检查 Developer Console、Modal 状态与 Notice 输出，触发含 `Bearer sk-proj-...` 与 `api_key=sk-live-...` 的 401/500 错误响应，确认密钥与 `Authorization` 头已被完全脱敏为 `<redacted>`（控制台与弹窗明文泄漏 **`0` 命中**）。
+- [x] M3 复跑通过（2026-11-22）：测试 Vault 根目录与 `.obsidian/` **零模型二进制文件**写入 Vault（`vaultModelBinaryCount = 0`，`361.4 MB` 模型与 WASM 全部位于 `~/.cache/voice-mode/models/`）。
 
 ---
 

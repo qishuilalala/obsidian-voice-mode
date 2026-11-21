@@ -188,6 +188,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     this.host = plugin;
   }
 
+  private resolveEffectiveAsr(): ObsidianAsrEngine {
+    const { settings, capabilities } = this.host;
+    return capabilities.allowedAsrEngines.includes(settings.asrEngine)
+      ? settings.asrEngine
+      : capabilities.defaultAsrEngine;
+  }
+
   private resolveEffectiveTts(): TtsEngineKind {
     const { settings, capabilities } = this.host;
     return capabilities.allowedTtsEngines.includes(settings.ttsEngine)
@@ -360,6 +367,16 @@ export class VoiceModeSettingTab extends PluginSettingTab {
               validate: (value) => this.validateOptionalEndpointMessage(value),
             },
           },
+          {
+            name: "Transcription model override",
+            desc: "Leave empty to use the default transcription model for your OpenAI-compatible endpoint.",
+            visible: () => this.resolveEffectiveAsr() === "openai-compat",
+            control: {
+              type: "text",
+              key: "asrModel",
+              placeholder: "whisper-1",
+            },
+          },
         ],
       },
       {
@@ -525,10 +542,18 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         items: [
           {
             name: "Enable optional BYOK voice assistant",
-            desc: "Leave disabled for strictly offline dictation and read-aloud. Enable only with your own model provider.",
+            desc: "Leave disabled for strictly offline dictation and read-aloud. Ask AI about selection or note uses your own model provider with automatic CORS fallback. Volcengine endpoints accept model names or an ep-xxx endpoint ID.",
             control: {
               type: "toggle",
               key: "enableVoiceQa",
+            },
+          },
+          {
+            name: "Post-dictation LLM polish",
+            desc: "Apply minimal typo, homophone, and punctuation cleanup after dictation with 4-layer anti-hallucination guards. Falls back to original text on any error.",
+            control: {
+              type: "toggle",
+              key: "enableLlmPolish",
             },
           },
           {
@@ -675,6 +700,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         return settings.enableSubtitleOverlay;
       case "asrEndpointUrl":
         return settings.asrEndpointUrl;
+      case "asrModel":
+        return settings.asrModel;
       case "ttsEngine":
         return capabilities.allowedTtsEngines.includes(settings.ttsEngine)
           ? settings.ttsEngine
@@ -703,6 +730,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         return settings.bargeInMode;
       case "enableVoiceQa":
         return settings.enableVoiceQa;
+      case "enableLlmPolish":
+        return settings.enableLlmPolish;
       case "llmPresetId":
         return settings.llmPresetId;
       case "llmModel":
@@ -732,6 +761,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       case "asrEngine":
         if (typeof value === "string") {
           settings.asrEngine = value as ObsidianAsrEngine;
+          shouldRefresh = true;
         }
         break;
       case "dictationMode":
@@ -761,6 +791,11 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             return;
           }
           settings.asrEndpointUrl = trimmed;
+        }
+        break;
+      case "asrModel":
+        if (typeof value === "string") {
+          settings.asrModel = value.trim();
         }
         break;
       case "ttsEngine":
@@ -837,6 +872,11 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       case "enableVoiceQa":
         if (typeof value === "boolean") {
           settings.enableVoiceQa = value;
+        }
+        break;
+      case "enableLlmPolish":
+        if (typeof value === "boolean") {
+          settings.enableLlmPolish = value;
         }
         break;
       case "llmPresetId":
@@ -991,7 +1031,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
   }
 
   private renderVoiceInputSection(containerEl: HTMLElement): void {
-    const { settings, capabilities } = this.host;
+    const { capabilities } = this.host;
+    const currentAsrEngine = this.resolveEffectiveAsr();
 
     new Setting(containerEl).setName("Voice input").setHeading();
 
@@ -1004,12 +1045,10 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         for (const engine of capabilities.allowedAsrEngines) {
           dropdown.addOption(engine, ASR_ENGINE_LABELS[engine]);
         }
-        const current = capabilities.allowedAsrEngines.includes(settings.asrEngine)
-          ? settings.asrEngine
-          : capabilities.defaultAsrEngine;
-        dropdown.setValue(current).onChange(async (value) => {
-          settings.asrEngine = value as ObsidianAsrEngine;
+        dropdown.setValue(currentAsrEngine).onChange(async (value) => {
+          this.host.settings.asrEngine = value as ObsidianAsrEngine;
           await this.host.saveSettings();
+          this.display();
         });
       });
 
@@ -1021,10 +1060,10 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           .addOption("toggle", DICTATION_MODE_LABELS.toggle)
           .addOption("single", DICTATION_MODE_LABELS.single)
           .addOption("push-to-talk", DICTATION_MODE_LABELS["push-to-talk"])
-          .setValue(settings.dictationMode)
+          .setValue(this.host.settings.dictationMode)
           .onChange(async (value) => {
             if (value === "toggle" || value === "single" || value === "push-to-talk") {
-              settings.dictationMode = value;
+              this.host.settings.dictationMode = value;
               await this.host.saveSettings();
             }
           });
@@ -1038,9 +1077,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .addText((text) => {
         text
           .setPlaceholder("zh-CN")
-          .setValue(settings.dictationLanguage)
+          .setValue(this.host.settings.dictationLanguage)
           .onChange(async (value) => {
-            settings.dictationLanguage = value.trim() || "zh-CN";
+            this.host.settings.dictationLanguage = value.trim() || "zh-CN";
             await this.host.saveSettings();
           });
       });
@@ -1051,9 +1090,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .addSlider((slider) => {
         slider
           .setLimits(400, 5000, 100)
-          .setValue(settings.endpointSilenceMs)
+          .setValue(this.host.settings.endpointSilenceMs)
           .onChange(async (value) => {
-            settings.endpointSilenceMs = Math.round(value);
+            this.host.settings.endpointSilenceMs = Math.round(value);
             await this.host.saveSettings();
           });
       });
@@ -1062,8 +1101,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .setName("Show live subtitle overlay")
       .setDesc("Display a compact transcript card at the bottom of the workspace during voice activity.")
       .addToggle((toggle) => {
-        toggle.setValue(settings.enableSubtitleOverlay).onChange(async (value) => {
-          settings.enableSubtitleOverlay = value;
+        toggle.setValue(this.host.settings.enableSubtitleOverlay).onChange(async (value) => {
+          this.host.settings.enableSubtitleOverlay = value;
           await this.host.saveSettings();
         });
       });
@@ -1075,8 +1114,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .setDesc(
         `Select a secret stored in Obsidian secret storage (suggested ID: ${toSecretId("asr", "openai-compat")}).`,
       );
-    this.attachSecretControl(asrSecretSetting, settings.asrApiKeySecretId, async (candidate) => {
-      settings.asrApiKeySecretId = candidate;
+    this.attachSecretControl(asrSecretSetting, this.host.settings.asrApiKeySecretId, async (candidate) => {
+      this.host.settings.asrApiKeySecretId = candidate;
       await this.host.saveSettings();
     });
 
@@ -1086,7 +1125,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .addText((text) => {
         text
           .setPlaceholder("https://api.openai.com/v1")
-          .setValue(settings.asrEndpointUrl)
+          .setValue(this.host.settings.asrEndpointUrl)
           .onChange(async (value) => {
             const trimmed = value.trim();
             const errMsg = this.validateOptionalEndpointMessage(trimmed);
@@ -1094,10 +1133,27 @@ export class VoiceModeSettingTab extends PluginSettingTab {
               new Notice(errMsg);
               return;
             }
-            settings.asrEndpointUrl = trimmed;
+            this.host.settings.asrEndpointUrl = trimmed;
             await this.host.saveSettings();
           });
       });
+
+    if (currentAsrEngine === "openai-compat") {
+      new Setting(containerEl)
+        .setName("Transcription model override")
+        .setDesc(
+          "Leave empty to use the default transcription model for your OpenAI-compatible endpoint.",
+        )
+        .addText((text) => {
+          text
+            .setPlaceholder("whisper-1")
+            .setValue(this.host.settings.asrModel)
+            .onChange(async (value) => {
+              this.host.settings.asrModel = value.trim();
+              await this.host.saveSettings();
+            });
+        });
+    }
   }
 
   private renderReplacementsEditor(parentEl: HTMLElement): void {
@@ -1257,10 +1313,10 @@ export class VoiceModeSettingTab extends PluginSettingTab {
   }
 
   private renderReadAloudSection(containerEl: HTMLElement): void {
-    const { settings, capabilities } = this.host;
+    const { capabilities } = this.host;
     const currentTtsEngine = this.resolveEffectiveTts();
-    const activeTtsPreset = resolveTtsOpenAiPreset(settings.ttsPresetId);
-    const voiceMeta = this.describeTtsVoiceMeta(currentTtsEngine, settings.ttsPresetId);
+    const activeTtsPreset = resolveTtsOpenAiPreset(this.host.settings.ttsPresetId);
+    const voiceMeta = this.describeTtsVoiceMeta(currentTtsEngine, this.host.settings.ttsPresetId);
 
     new Setting(containerEl).setName("Read aloud").setHeading();
 
@@ -1272,7 +1328,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           dropdown.addOption(engine, TTS_ENGINE_LABELS[engine]);
         }
         dropdown.setValue(currentTtsEngine).onChange(async (value) => {
-          settings.ttsEngine = asTtsEngineKind(value);
+          this.host.settings.ttsEngine = asTtsEngineKind(value);
           await this.host.saveSettings();
           this.display();
         });
@@ -1288,8 +1344,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           for (const [id, label] of Object.entries(buildTtsPresetOptions())) {
             dropdown.addOption(id, label);
           }
-          dropdown.setValue(settings.ttsPresetId).onChange(async (value) => {
-            settings.ttsPresetId = value;
+          dropdown.setValue(this.host.settings.ttsPresetId).onChange(async (value) => {
+            this.host.settings.ttsPresetId = value;
             await this.host.saveSettings();
             this.display();
           });
@@ -1304,11 +1360,11 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           for (const [id, label] of Object.entries(buildVitsSpeakerOptions())) {
             dropdown.addOption(id, label);
           }
-          const selectedSpeaker = VITS_SPEAKERS.some((s) => s.name === settings.ttsVoice)
-            ? settings.ttsVoice
+          const selectedSpeaker = VITS_SPEAKERS.some((s) => s.name === this.host.settings.ttsVoice)
+            ? this.host.settings.ttsVoice
             : "";
           dropdown.setValue(selectedSpeaker).onChange(async (value) => {
-            settings.ttsVoice = value;
+            this.host.settings.ttsVoice = value;
             await this.host.saveSettings();
             this.display();
           });
@@ -1321,9 +1377,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .addText((text) => {
         text
           .setPlaceholder(voiceMeta.placeholder)
-          .setValue(settings.ttsVoice)
+          .setValue(this.host.settings.ttsVoice)
           .onChange(async (value) => {
-            settings.ttsVoice = value.trim();
+            this.host.settings.ttsVoice = value.trim();
             await this.host.saveSettings();
           });
       });
@@ -1339,9 +1395,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
                 ? MIMO_DEFAULT_MODEL
                 : activeTtsPreset?.model || "tts-1",
             )
-            .setValue(settings.ttsModel)
+            .setValue(this.host.settings.ttsModel)
             .onChange(async (value) => {
-              settings.ttsModel = value.trim();
+              this.host.settings.ttsModel = value.trim();
               await this.host.saveSettings();
             });
         });
@@ -1358,7 +1414,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
                 ? MIMO_DEFAULT_BASE_URL
                 : activeTtsPreset?.baseUrl || "https://api.openai.com/v1",
             )
-            .setValue(settings.ttsEndpointUrl)
+            .setValue(this.host.settings.ttsEndpointUrl)
             .onChange(async (value) => {
               const trimmed = value.trim();
               const errMsg = this.validateOptionalEndpointMessage(trimmed);
@@ -1366,21 +1422,23 @@ export class VoiceModeSettingTab extends PluginSettingTab {
                 new Notice(errMsg);
                 return;
               }
-              settings.ttsEndpointUrl = trimmed;
+              this.host.settings.ttsEndpointUrl = trimmed;
               await this.host.saveSettings();
             });
         });
 
       const presetScope =
-        currentTtsEngine === "openai-compat" ? settings.ttsPresetId : undefined;
+        currentTtsEngine === "openai-compat" ? this.host.settings.ttsPresetId : undefined;
       const ttsSecretSetting = new Setting(containerEl)
         .setName("Speech API key")
-        .setDesc(this.describeTtsSecretDesc(currentTtsEngine, settings.ttsPresetId));
+        .setDesc(this.describeTtsSecretDesc(currentTtsEngine, this.host.settings.ttsPresetId));
       this.attachSecretControl(
         ttsSecretSetting,
-        getTtsSecretId(settings, currentTtsEngine, presetScope),
+        getTtsSecretId(this.host.settings, currentTtsEngine, presetScope),
         async (candidate) => {
-          setTtsSecretId(settings, currentTtsEngine, candidate, presetScope);
+          const scope =
+            currentTtsEngine === "openai-compat" ? this.host.settings.ttsPresetId : undefined;
+          setTtsSecretId(this.host.settings, currentTtsEngine, candidate, scope);
           await this.host.saveSettings();
         },
       );
@@ -1392,9 +1450,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .addSlider((slider) => {
         slider
           .setLimits(0.5, 2.0, 0.1)
-          .setValue(settings.speechRate)
+          .setValue(this.host.settings.speechRate)
           .onChange(async (value) => {
-            settings.speechRate = value;
+            this.host.settings.speechRate = value;
             await this.host.saveSettings();
           });
       });
@@ -1406,9 +1464,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         dropdown
           .addOption("skip", "Skip tables")
           .addOption("placeholder", "Speak brief placeholder")
-          .setValue(settings.markdownTablePolicy)
+          .setValue(this.host.settings.markdownTablePolicy)
           .onChange(async (value) => {
-            settings.markdownTablePolicy = value as MarkdownTablePolicy;
+            this.host.settings.markdownTablePolicy = value as MarkdownTablePolicy;
             await this.host.saveSettings();
           });
       });
@@ -1420,9 +1478,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         for (const key of ["small", "medium", "large"] as const) {
           dropdown.addOption(key, SUBTITLE_FONT_SIZE_LABELS[key]);
         }
-        dropdown.setValue(settings.subtitleFontSize).onChange(async (value) => {
+        dropdown.setValue(this.host.settings.subtitleFontSize).onChange(async (value) => {
           if (value === "small" || value === "medium" || value === "large") {
-            settings.subtitleFontSize = value;
+            this.host.settings.subtitleFontSize = value;
             await this.host.saveSettings();
           }
         });
@@ -1435,9 +1493,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         for (const key of ["narrow", "medium", "wide"] as const) {
           dropdown.addOption(key, SUBTITLE_WIDTH_LABELS[key]);
         }
-        dropdown.setValue(settings.subtitleWidth).onChange(async (value) => {
+        dropdown.setValue(this.host.settings.subtitleWidth).onChange(async (value) => {
           if (value === "narrow" || value === "medium" || value === "wide") {
-            settings.subtitleWidth = value;
+            this.host.settings.subtitleWidth = value;
             await this.host.saveSettings();
           }
         });
@@ -1447,8 +1505,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .setName("Stop read-aloud when switching notes")
       .setDesc("Immediately cancel active read-aloud when opening or switching to another note.")
       .addToggle((toggle) => {
-        toggle.setValue(settings.stopReadAloudOnNoteSwitch).onChange(async (value) => {
-          settings.stopReadAloudOnNoteSwitch = value;
+        toggle.setValue(this.host.settings.stopReadAloudOnNoteSwitch).onChange(async (value) => {
+          this.host.settings.stopReadAloudOnNoteSwitch = value;
           await this.host.saveSettings();
         });
       });
@@ -1462,9 +1520,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         for (const key of ["detect", "auto", "manual"] as const) {
           dropdown.addOption(key, BARGE_IN_MODE_LABELS[key]);
         }
-        dropdown.setValue(settings.bargeInMode).onChange(async (value) => {
+        dropdown.setValue(this.host.settings.bargeInMode).onChange(async (value) => {
           if (value === "detect" || value === "auto" || value === "manual") {
-            settings.bargeInMode = value;
+            this.host.settings.bargeInMode = value;
             await this.host.saveSettings();
             this.display();
           }
@@ -1473,17 +1531,31 @@ export class VoiceModeSettingTab extends PluginSettingTab {
   }
 
   private renderAiModelSection(containerEl: HTMLElement): void {
-    const { settings } = this.host;
-    const activePreset = LLM_PRESETS[settings.llmPresetId];
+    const currentPresetId = this.host.settings.llmPresetId;
+    const activePreset = LLM_PRESETS[currentPresetId];
 
     new Setting(containerEl).setName("AI model").setHeading();
 
     new Setting(containerEl)
       .setName("Enable optional BYOK voice assistant")
-      .setDesc("Leave disabled for strictly offline dictation and read-aloud. Enable only with your own model provider.")
+      .setDesc(
+        "Leave disabled for strictly offline dictation and read-aloud. Ask AI about selection or note uses your own model provider with automatic CORS fallback. Volcengine endpoints accept model names or an ep-xxx endpoint ID.",
+      )
       .addToggle((toggle) => {
-        toggle.setValue(settings.enableVoiceQa).onChange(async (value) => {
-          settings.enableVoiceQa = value;
+        toggle.setValue(this.host.settings.enableVoiceQa).onChange(async (value) => {
+          this.host.settings.enableVoiceQa = value;
+          await this.host.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Post-dictation LLM polish")
+      .setDesc(
+        "Apply minimal typo, homophone, and punctuation cleanup after dictation with 4-layer anti-hallucination guards. Falls back to original text on any error.",
+      )
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.enableLlmPolish).onChange(async (value) => {
+          this.host.settings.enableLlmPolish = value;
           await this.host.saveSettings();
         });
       });
@@ -1495,14 +1567,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         for (const presetId of LLM_PRESET_IDS) {
           dropdown.addOption(presetId, LLM_PRESETS[presetId].label);
         }
-        dropdown.setValue(settings.llmPresetId).onChange(async (value) => {
-          settings.llmPresetId = asLlmPresetId(value);
+        dropdown.setValue(this.host.settings.llmPresetId).onChange(async (value) => {
+          this.host.settings.llmPresetId = asLlmPresetId(value);
           await this.host.saveSettings();
           this.display();
         });
       });
 
-    const currentPresetId = settings.llmPresetId;
     const llmSecretSetting = new Setting(containerEl)
       .setName("Provider API key")
       .setDesc(
@@ -1510,9 +1581,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       );
     this.attachSecretControl(
       llmSecretSetting,
-      getLlmSecretId(settings, currentPresetId),
+      getLlmSecretId(this.host.settings, currentPresetId),
       async (candidate) => {
-        setLlmSecretId(settings, currentPresetId, candidate);
+        setLlmSecretId(this.host.settings, this.host.settings.llmPresetId, candidate);
         await this.host.saveSettings();
       },
     );
@@ -1523,9 +1594,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .addText((text) => {
         text
           .setPlaceholder(activePreset.defaultModel || "model-name")
-          .setValue(settings.llmModel)
+          .setValue(this.host.settings.llmModel)
           .onChange(async (value) => {
-            settings.llmModel = value.trim();
+            this.host.settings.llmModel = value.trim();
             await this.host.saveSettings();
           });
       });
@@ -1536,7 +1607,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .addText((text) => {
         text
           .setPlaceholder(activePreset.defaultBaseUrl || "https://example.com/v1")
-          .setValue(settings.llmBaseUrl)
+          .setValue(this.host.settings.llmBaseUrl)
           .onChange(async (value) => {
             const trimmed = value.trim();
             const errMsg = this.validateOptionalEndpointMessage(trimmed);
@@ -1544,14 +1615,14 @@ export class VoiceModeSettingTab extends PluginSettingTab {
               new Notice(errMsg);
               return;
             }
-            settings.llmBaseUrl = trimmed;
+            this.host.settings.llmBaseUrl = trimmed;
             await this.host.saveSettings();
           });
       });
   }
 
   private renderModelsAndPrivacySection(containerEl: HTMLElement): void {
-    const { settings, capabilities } = this.host;
+    const { capabilities } = this.host;
 
     new Setting(containerEl).setName("Models and privacy").setHeading();
 
@@ -1567,14 +1638,14 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         dropdown
           .addOption(MODEL_HOST_PRIMARY, "Primary host (huggingface.co)")
           .addOption(MODEL_HOST_FALLBACK, "Fallback mirror (hf-mirror.com)")
-          .setValue(settings.modelMirrorHost)
+          .setValue(this.host.settings.modelMirrorHost)
           .onChange(async (value) => {
             const validated = validateModelHost(value);
             if (!validated) {
               new Notice("Selected model host is not on the allowlist.");
               return;
             }
-            settings.modelMirrorHost = validated;
+            this.host.settings.modelMirrorHost = validated;
             await this.host.saveSettings();
           });
       });
@@ -1588,7 +1659,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         .addText((text) => {
           text
             .setPlaceholder(capabilities.externalModelCacheDir)
-            .setValue(settings.customModelCacheDir)
+            .setValue(this.host.settings.customModelCacheDir)
             .onChange(async (value) => {
               const trimmed = value.trim();
               const errMsg = this.validateCustomCacheDirMessage(trimmed);
@@ -1596,7 +1667,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
                 new Notice(errMsg);
                 return;
               }
-              settings.customModelCacheDir = trimmed;
+              this.host.settings.customModelCacheDir = trimmed;
               await this.host.saveSettings();
               this.refreshTab();
             });
@@ -1610,9 +1681,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         .addSlider((slider) => {
           slider
             .setLimits(0, 30, 1)
-            .setValue(settings.workerIdleUnloadMinutes)
+            .setValue(this.host.settings.workerIdleUnloadMinutes)
             .onChange(async (value) => {
-              settings.workerIdleUnloadMinutes = Math.round(value);
+              this.host.settings.workerIdleUnloadMinutes = Math.round(value);
               await this.host.saveSettings();
             });
         });
@@ -1625,7 +1696,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         .addText((text) => {
           text
             .setPlaceholder(DEFAULT_LOCAL_DAEMON_URL)
-            .setValue(settings.daemonUrl)
+            .setValue(this.host.settings.daemonUrl)
             .onChange(async (value) => {
               const trimmed = value.trim();
               const errMsg = this.validateLoopbackDaemonMessage(trimmed);
@@ -1633,7 +1704,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
                 new Notice(errMsg);
                 return;
               }
-              settings.daemonUrl = trimmed;
+              this.host.settings.daemonUrl = trimmed;
               await this.host.saveSettings();
             });
         });
@@ -1643,8 +1714,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .setName("Allow cloud fallback on mobile")
       .setDesc("Allow optional BYOK cloud speech endpoints when running on iOS or Android.")
       .addToggle((toggle) => {
-        toggle.setValue(settings.allowCloudFallbackOnMobile).onChange(async (value) => {
-          settings.allowCloudFallbackOnMobile = value;
+        toggle.setValue(this.host.settings.allowCloudFallbackOnMobile).onChange(async (value) => {
+          this.host.settings.allowCloudFallbackOnMobile = value;
           await this.host.saveSettings();
         });
       });

@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added (M3 BYOK Voice Q&A, 4-Guard Polish, Cloud ASR & Pre-Release Acoustic Gates — 2026-11-22)
+
+- **BYOK Voice Q&A, 4-layer anti-hallucination polish & OpenAI-compatible ASR (`SecretStorage`)**:
+  - `@voice-mode/core`: `OpenAiCompatAsrTransport` (`asr-engines.ts`: pure `Uint8Array` RFC 7578 `multipart/form-data` + 44-byte RIFF WAV encoder, Whisper locale normalization, `redirect: "error"`, `25 MiB` upload cap, pre-truncation `redactSecrets`) and `llm-router.ts` (`395 < 400` lines: loopback `http://` keyless override + non-SSE `application/json` `streamChat` fallback).
+  - `@voice-mode/browser`: zero-WASM, zero-Worker `CloudDictationSession` (`cloud-dictation-session.ts`: `640 ms` pre-roll ring buffer, RMS endpointing, `60s` forced split, and `sessionEpoch` zero-leak cancellation across `toggle`, `single`, and `push-to-talk` modes).
+  - `@voice-mode/obsidian-plugin` & `styles.css`: `VoiceQaModal` (`ask-ai-about-note`: active selection/note context up to `24,000` chars, streaming SSE reply, optional sentence read-aloud, single-utterance question dictation, and `Insert at cursor`), `enableLlmPolish` 4-guard post-dictation cleanup with zero-data-loss fallback, instant blocked-VITS Worker termination on dictation switch, and `settingsWriteEpoch` concurrency guard (`main.js` = `261.94 KB`, `147` unit tests).
+- **Verified (M3 Security Redaction & Desktop Acoustic Gates `A-1`–`A-4`)**:
+  - Verified zero plaintext secrets in `.obsidian/plugins/voice-mode/data.json`, zero secret leakage across Console/Notices/Modal on simulated `HTTP 401`/`500` responses, and desktop real-device pass on `A-1` (`15.91:1` / `12.19:1` contrast, `< 100 ms` stop), `A-2` (`0` Markdown/5×5 table noise, `83–202 ms < 600 ms` voice barge-in), `A-3` (offline `53.1 s` 6-breath CJK+EN corpus `3/3` vocabulary replacements), and `A-4` (`120,005 ms` `manual` speaker read-aloud `0` self-interrupts + live Push-to-Talk insertion & clean mic release).
+
 ### Added (M2 Spoken Read-Aloud, Subtitle Controls, Multi-Engine TTS & Native AEC3 Barge-In — 2026-11-22)
 
 - **Multi-engine TTS routing & zero-redirect CORS fallback**:
@@ -34,7 +43,8 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned (see `docs/plan/master-plan.md`)
 
-- **M3**: Optional BYOK voice Q&A / transcript polish via `SecretStorage`, mobile graceful degradation verification, and 4 mandatory real-machine acoustic acceptance gates.
+- **M4**: Physical iOS/Android mobile device degradation verification (`M-1`–`M-5`) and official `obsidianmd/obsidian-releases` Community Plugin Directory submission.
+- **M5–M6**: Wave 2 `sillytavern-voice-mode` and Wave 3 unified local `voice-daemon` + Chrome/Edge extension.
 
 ## [0.1.0] - 2026-11-21
 

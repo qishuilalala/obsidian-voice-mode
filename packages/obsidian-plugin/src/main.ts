@@ -1,16 +1,19 @@
 import {
   MODEL_BUNDLES,
   MimoTtsEngine,
+  OpenAiCompatAsrTransport,
   OpenAiCompatTtsEngine,
   buildMemfsSherpaGlue,
   createAsrReplacer,
   isCloudAsrEngine,
   isCloudTtsEngine,
   redactSecrets,
+  resolveTranscriptionsEndpointUrl,
   type TtsEngineKind,
 } from "@voice-mode/core";
 import {
   AecBargeInMonitor,
+  CloudDictationSession,
   OfflineDictationSession,
   SherpaWorkerClient,
   VitsWasmTtsEngine,
@@ -57,6 +60,11 @@ import {
   type VoiceModePluginHost,
 } from "./settings-tab.ts";
 import { SpeechPlayer } from "./speech-player.ts";
+import {
+  VoiceQaModal,
+  extractNoteQaContext,
+  polishDictatedTranscript,
+} from "./voice-qa-modal.ts";
 
 type VoiceStatusKind = "idle" | "listening" | "busy" | "speaking" | "error";
 
@@ -167,6 +175,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private workerClient: SherpaWorkerClient | null = null;
   private bargeInWorkerClient: SherpaWorkerClient | null = null;
   private offlineSession: OfflineDictationSession | null = null;
+  private asrTransport: OpenAiCompatAsrTransport | null = null;
+  private cloudSession: CloudDictationSession | null = null;
+  private cloudAsrConfigKey = "";
+  private readonly polishAbortControllers = new Set<AbortController>();
+  private polishFallbackNotified = false;
+  private dictationTargetOverride: ((text: string) => void) | null = null;
+  private dictationTargetSettled: (() => void) | null = null;
+  private activeQaModal: VoiceQaModal | null = null;
   private bargeInMonitor: AecBargeInMonitor | null = null;
   private bargeInStateEpoch = 0;
   private lastBargeInDecision: BargeInPolicyDecision | null = null;
@@ -187,6 +203,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private startingDictation = false;
   private dictationStartEpoch = 0;
   private readAloudStartEpoch = 0;
+  private settingsWriteEpoch = 0;
   private readingNotePath: string | null = null;
   private pointerHoldActive = false;
   private recognitionErrored = false;
@@ -333,6 +350,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     });
 
     this.addCommand({
+      id: "ask-ai-about-note",
+      name: "Ask AI about selection or note",
+      callback: () => {
+        this.openVoiceQaModal();
+      },
+    });
+
+    this.addCommand({
       id: "check-runtime-status",
       name: "Check voice runtime status",
       callback: () => {
@@ -350,6 +375,19 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.readingNotePath = null;
     this.startingDictation = false;
     this.pointerHoldActive = false;
+    this.notifyDictationTargetSettled();
+
+    if (this.activeQaModal) {
+      const modal = this.activeQaModal;
+      this.activeQaModal = null;
+      modal.close();
+    }
+
+    for (const controller of this.polishAbortControllers) {
+      controller.abort();
+    }
+    this.polishAbortControllers.clear();
+
     this.cancelModelDownload();
     this.stopBrowserRecognition();
     this.clearSubtitleHideTimer();
@@ -363,6 +401,17 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       void this.offlineSession.abort();
       this.offlineSession = null;
     }
+
+    if (this.cloudSession) {
+      void this.cloudSession.abort();
+      this.cloudSession = null;
+    }
+
+    if (this.asrTransport) {
+      void this.asrTransport.close();
+      this.asrTransport = null;
+    }
+    this.cloudAsrConfigKey = "";
 
     this.vitsTtsEngine = null;
     this.openAiTtsEngine = null;
@@ -402,16 +451,21 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   }
 
   async loadSettings(): Promise<void> {
+    const epoch = this.settingsWriteEpoch;
     const raw: unknown = await this.loadData();
-    Object.assign(this.settings, normalizeSettings(raw));
+    if (epoch === this.settingsWriteEpoch) {
+      Object.assign(this.settings, normalizeSettings(raw));
+    }
   }
 
   async saveSettings(): Promise<void> {
+    this.settingsWriteEpoch += 1;
     const normalized = normalizeSettings(stripSecretsFromSettings(this.settings));
     Object.assign(this.settings, normalized);
     await this.saveData(stripSecretsFromSettings(this.settings));
 
     this.lastBargeInDecision = null;
+    this.polishFallbackNotified = false;
     this.applySubtitleCardModifiers();
 
     if (this.speechPlayer) {
@@ -436,6 +490,26 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     if (this.offlineSession) {
       this.offlineSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
       this.offlineSession.updateLanguage(resolvedLanguage);
+    }
+
+    if (this.cloudSession) {
+      const nextCloudKey = JSON.stringify([
+        this.settings.asrEndpointUrl,
+        this.settings.asrModel,
+      ]);
+      if (nextCloudKey !== this.cloudAsrConfigKey && this.cloudSession.state === "idle") {
+        const prevTransport = this.asrTransport;
+        this.cloudSession = null;
+        this.asrTransport = null;
+        this.cloudAsrConfigKey = "";
+        void prevTransport?.close().catch(() => undefined);
+        if (this.getEffectiveAsrEngine() === "openai-compat") {
+          this.ensureCloudDictationSession();
+        }
+      } else {
+        this.cloudSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
+        this.cloudSession.updateLanguage(this.settings.dictationLanguage);
+      }
     }
 
     if (this.workerClient) {
@@ -568,6 +642,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.bargeInStateEpoch += 1;
     this.startingDictation = false;
     this.pointerHoldActive = false;
+    this.notifyDictationTargetSettled();
     if (this.speechPlayer?.isActive) {
       this.stopReadAloudSilently();
     }
@@ -576,6 +651,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
     if (this.offlineSession && this.offlineSession.state !== "idle") {
       await this.offlineSession.abort();
+    }
+    if (this.cloudSession && this.cloudSession.state !== "idle") {
+      await this.cloudSession.abort();
     }
     if (this.workerClient) {
       await this.workerClient.unload();
@@ -600,6 +678,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.settings.asrEngine,
       this.capabilities,
       this.settings.allowCloudFallbackOnMobile,
+      this.settings.asrEndpointUrl,
     );
   }
 
@@ -653,12 +732,16 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
 
     this.modelManagerConfigKey = configKey;
-    this.modelManager = new DesktopModelManager({
-      customCacheDir: this.settings.customModelCacheDir,
-      vaultBasePath,
-      preferredModelHost: this.settings.modelMirrorHost,
-      vitsBundle: MODEL_BUNDLES["vits-zh-ll"],
-    });
+    try {
+      this.modelManager = new DesktopModelManager({
+        customCacheDir: this.settings.customModelCacheDir,
+        vaultBasePath,
+        preferredModelHost: this.settings.modelMirrorHost,
+        vitsBundle: MODEL_BUNDLES["vits-zh-ll"],
+      });
+    } catch {
+      this.modelManager = null;
+    }
     return this.modelManager;
   }
 
@@ -954,15 +1037,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           }
         },
         onFinalTranscript: (rawText) => {
-          const replacer = createAsrReplacer(this.settings.asrReplacements);
-          const committed = replacer(rawText).trim();
-          if (committed) {
-            this.commitDictatedText(committed);
-            this.showSubtitleOverlay("Inserted", committed, 2400);
-          }
+          const target = this.dictationTargetOverride ?? undefined;
+          this.notifyDictationTargetSettled();
+          void this.processAndCommitDictation(rawText, target);
         },
         onError: (err) => {
           this.listening = false;
+          this.notifyDictationTargetSettled();
           this.setStatus("error");
           this.hideSubtitleOverlay();
           if (isMicrophonePermissionError(err)) {
@@ -1008,19 +1089,140 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         break;
       case "idle":
         this.listening = false;
-        if (!this.speechPlayer?.isActive && this.currentStatus !== "error") {
+        this.notifyDictationTargetSettled();
+        if (
+          this.polishAbortControllers.size === 0 &&
+          !this.speechPlayer?.isActive &&
+          this.currentStatus !== "error"
+        ) {
           this.setStatus("idle");
         }
         break;
     }
   }
 
-  private isDictationBusy(): boolean {
-    if (this.startingDictation || this.listening) {
+  private ensureCloudDictationSession(): CloudDictationSession {
+    const nextKey = JSON.stringify([
+      this.settings.asrEndpointUrl,
+      this.settings.asrModel,
+    ]);
+
+    if (
+      !this.cloudSession ||
+      !this.asrTransport ||
+      (this.cloudSession.state === "idle" && nextKey !== this.cloudAsrConfigKey)
+    ) {
+      const prevTransport = this.asrTransport;
+      this.asrTransport = new OpenAiCompatAsrTransport({
+        baseUrl: this.settings.asrEndpointUrl || undefined,
+        model: this.settings.asrModel || undefined,
+        language: this.settings.dictationLanguage,
+        apiKey: () =>
+          this.settings.asrApiKeySecretId
+            ? this.secretStore.getSecret(this.settings.asrApiKeySecretId)
+            : null,
+        fetchImpl: this.corsFetch,
+      });
+
+      this.cloudSession = new CloudDictationSession({
+        transport: this.asrTransport,
+        endpointPolicy: {
+          silenceMs: this.settings.endpointSilenceMs,
+        },
+        language: this.settings.dictationLanguage,
+        onStateChange: (state) => {
+          this.handleCloudStateChange(state);
+        },
+        onSpeechActivity: (isSpeech) => {
+          if (this.cloudSession?.state === "listening") {
+            this.showSubtitleOverlay(
+              "Cloud dictation",
+              isSpeech ? "Listening (speech detected)..." : "Listening...",
+            );
+          }
+        },
+        onFinalTranscript: (rawText) => {
+          const target = this.dictationTargetOverride ?? undefined;
+          this.notifyDictationTargetSettled();
+          void this.processAndCommitDictation(rawText, target);
+        },
+        onError: (err) => {
+          this.listening = false;
+          this.notifyDictationTargetSettled();
+          this.setStatus("error");
+          this.hideSubtitleOverlay();
+          if (isMicrophonePermissionError(err)) {
+            new Notice(
+              "Microphone permission was denied. Grant microphone access to Obsidian in your OS privacy settings and try again.",
+              7000,
+            );
+            return;
+          }
+          const message = redactSecrets(err.message || String(err));
+          new Notice(`Cloud dictation error: ${message}`);
+        },
+      });
+      this.cloudAsrConfigKey = nextKey;
+
+      if (prevTransport) {
+        void prevTransport.close().catch(() => undefined);
+      }
+    }
+
+    this.cloudSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
+    this.cloudSession.updateLanguage(this.settings.dictationLanguage);
+    return this.cloudSession;
+  }
+
+  private handleCloudStateChange(state: DictationSessionState): void {
+    switch (state) {
+      case "starting":
+        this.listening = true;
+        this.setStatus("busy", "Starting mic");
+        this.showSubtitleOverlay("Cloud dictation", "Opening microphone...");
+        break;
+      case "listening":
+        this.listening = true;
+        this.setStatus("listening");
+        this.showSubtitleOverlay(
+          "Cloud dictation",
+          this.cloudSession?.mode === "push-to-talk"
+            ? "Push to talk active — speak now..."
+            : "Listening...",
+        );
+        break;
+      case "transcribing":
+      case "stopping":
+        this.listening = false;
+        this.setStatus("busy", "Transcribing");
+        this.showSubtitleOverlay("Cloud dictation", "Transcribing...");
+        break;
+      case "idle":
+        this.listening = false;
+        this.notifyDictationTargetSettled();
+        if (
+          this.polishAbortControllers.size === 0 &&
+          !this.speechPlayer?.isActive &&
+          this.currentStatus !== "error"
+        ) {
+          this.setStatus("idle");
+        }
+        break;
+    }
+  }
+
+  private isMicSessionActive(): boolean {
+    if (this.startingDictation || this.listening || this.activeRecognition) {
       return true;
     }
-    const state = this.offlineSession?.state;
-    return state !== undefined && state !== "idle";
+    if (this.offlineSession && this.offlineSession.state !== "idle") {
+      return true;
+    }
+    return Boolean(this.cloudSession && this.cloudSession.state !== "idle");
+  }
+
+  private isDictationBusy(): boolean {
+    return this.isMicSessionActive() || this.polishAbortControllers.size > 0;
   }
 
   private clearSubtitleHideTimer(): void {
@@ -1055,6 +1257,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       }
       if (this.offlineSession && this.offlineSession.state !== "idle") {
         void this.offlineSession.stop({ flush: true });
+      }
+      if (this.cloudSession && this.cloudSession.state !== "idle") {
+        void this.cloudSession.stop({ flush: true });
       }
     };
 
@@ -1229,17 +1434,24 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   async toggleDictation(modeOverride?: DictationMode, fromPointerHold = false): Promise<void> {
     if (this.startingDictation) {
+      const wasCloudStarting = Boolean(this.cloudSession && this.cloudSession.state !== "idle");
       this.dictationStartEpoch += 1;
       this.startingDictation = false;
       this.pointerHoldActive = false;
+      this.dictationTargetOverride = null;
       if (this.offlineSession && this.offlineSession.state !== "idle") {
         await this.offlineSession.stop({ flush: false });
+      }
+      if (this.cloudSession && this.cloudSession.state !== "idle") {
+        await this.cloudSession.stop({ flush: false });
       }
       if (!this.speechPlayer?.isActive && this.currentStatus !== "error") {
         this.setStatus("idle");
         this.hideSubtitleOverlay();
       }
-      new Notice("Offline voice dictation stopped.");
+      new Notice(
+        wasCloudStarting ? "Cloud voice dictation stopped." : "Offline voice dictation stopped.",
+      );
       return;
     }
 
@@ -1250,24 +1462,32 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
+    if (this.cloudSession && this.cloudSession.state !== "idle") {
+      this.pointerHoldActive = false;
+      await this.cloudSession.stop({ flush: true });
+      new Notice("Cloud voice dictation stopped.");
+      return;
+    }
+
     if (this.activeRecognition || this.listening) {
       this.stopBrowserRecognition();
       new Notice("Voice dictation stopped.");
       return;
     }
 
+    const effectiveAsr = this.getEffectiveAsrEngine();
     if (
       this.capabilities.isMobile &&
       !this.settings.allowCloudFallbackOnMobile &&
       this.settings.asrEngine !== "system" &&
-      isCloudAsrEngine(this.settings.asrEngine)
+      isCloudAsrEngine(this.settings.asrEngine) &&
+      effectiveAsr !== this.settings.asrEngine
     ) {
       new Notice(
         "Cloud speech recognition is disabled on mobile by privacy settings; using system speech recognition.",
       );
     }
 
-    const effectiveAsr = this.getEffectiveAsrEngine();
     const mode = modeOverride ?? this.settings.dictationMode;
 
     if (effectiveAsr === "sensevoice-wasm") {
@@ -1275,14 +1495,96 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
+    if (effectiveAsr === "openai-compat") {
+      await this.startCloudOpenAiDictation(mode, fromPointerHold);
+      return;
+    }
+
     if (effectiveAsr !== "system") {
+      this.notifyDictationTargetSettled();
       new Notice(
         `Speech recognition engine "${effectiveAsr}" is scheduled for a subsequent milestone. Choose SenseVoice WASM on desktop for offline dictation.`,
       );
       return;
     }
 
-    await this.startBrowserSpeechRecognitionFallback();
+    await this.startBrowserSpeechRecognitionFallback(mode);
+  }
+
+  private async startCloudOpenAiDictation(
+    mode: DictationMode,
+    fromPointerHold: boolean,
+  ): Promise<void> {
+    let endpoint: ReturnType<typeof resolveTranscriptionsEndpointUrl>;
+    try {
+      endpoint = resolveTranscriptionsEndpointUrl(this.settings.asrEndpointUrl || undefined);
+    } catch (err) {
+      this.pointerHoldActive = false;
+      this.notifyDictationTargetSettled();
+      const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+      new Notice(`Invalid transcription endpoint URL: ${msg}`);
+      return;
+    }
+
+    if (!endpoint.isLoopbackHttp) {
+      const secretId = this.settings.asrApiKeySecretId;
+      const apiKey = secretId ? this.secretStore.getSecret(secretId) : null;
+      if (!apiKey || !apiKey.trim()) {
+        this.pointerHoldActive = false;
+        this.notifyDictationTargetSettled();
+        new Notice(
+          "Configure a transcription API key in Voice Mode settings before starting BYOK dictation.",
+        );
+        return;
+      }
+    }
+
+    const startEpoch = ++this.dictationStartEpoch;
+    this.startingDictation = true;
+
+    try {
+      const session = this.ensureCloudDictationSession();
+
+      // Stop active read-aloud and release any AEC barge-in mic capture before opening dictation mic.
+      // If `workerClient` currently holds `tts-vits` (which blocks its Worker thread during synchronous
+      // VITS generation), detach & terminate it immediately so SenseVoice starts in < 1s without queueing.
+      this.stopReadAloudSilently();
+      if (this.workerClient?.isLoaded("tts-vits")) {
+        void this.workerClient.unload();
+      }
+      if (this.bargeInMonitor) {
+        await this.bargeInMonitor.stop();
+      }
+      if (startEpoch !== this.dictationStartEpoch || (fromPointerHold && !this.pointerHoldActive)) {
+        return;
+      }
+
+      try {
+        await session.start(mode);
+      } catch {
+        this.pointerHoldActive = false;
+        this.notifyDictationTargetSettled();
+        // Detailed error Notice is already surfaced via CloudDictationSession.onError.
+        return;
+      }
+
+      if (startEpoch !== this.dictationStartEpoch || (fromPointerHold && !this.pointerHoldActive)) {
+        await session.stop({ flush: true });
+        return;
+      }
+
+      new Notice(
+        mode === "single"
+          ? "Cloud dictation started (single utterance)."
+          : mode === "push-to-talk"
+            ? "Push-to-talk started — invoke again or release to transcribe."
+            : "Cloud dictation started.",
+      );
+    } finally {
+      if (this.dictationStartEpoch === startEpoch) {
+        this.startingDictation = false;
+      }
+    }
   }
 
   private async startOfflineSenseVoiceDictation(
@@ -1329,7 +1631,12 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       }
 
       // Stop active read-aloud and release any AEC barge-in mic capture before opening dictation mic.
+      // If `workerClient` currently holds `tts-vits` (which blocks its Worker thread during synchronous
+      // VITS generation), detach & terminate it immediately so SenseVoice starts in < 1s without queueing.
       this.stopReadAloudSilently();
+      if (this.workerClient?.isLoaded("tts-vits")) {
+        void this.workerClient.unload();
+      }
       if (this.bargeInMonitor) {
         await this.bargeInMonitor.stop();
       }
@@ -1364,10 +1671,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
   }
 
-  private async startBrowserSpeechRecognitionFallback(): Promise<void> {
+  private async startBrowserSpeechRecognitionFallback(
+    mode: DictationMode = this.settings.dictationMode,
+  ): Promise<void> {
     const win = activeWindow as SpeechRecognitionWindow;
     const RecognitionCtor = win.SpeechRecognition ?? win.webkitSpeechRecognition;
     if (!RecognitionCtor) {
+      this.notifyDictationTargetSettled();
       new Notice(
         this.capabilities.isMobile
           ? "System speech recognition is unavailable in this mobile runtime."
@@ -1390,10 +1700,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
       const recognition = new RecognitionCtor();
       recognition.lang = this.settings.dictationLanguage;
-      recognition.continuous = this.settings.dictationMode !== "single";
+      recognition.continuous = mode !== "single";
       recognition.interimResults = true;
-
-      const replacer = createAsrReplacer(this.settings.asrReplacements);
 
       recognition.onresult = (event) => {
         let interimText = "";
@@ -1417,11 +1725,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         }
 
         if (finalText.trim()) {
-          const committed = replacer(finalText).trim();
-          if (committed) {
-            this.commitDictatedText(committed);
-            this.showSubtitleOverlay("Inserted", committed, 2200);
-          }
+          const target = this.dictationTargetOverride ?? undefined;
+          this.notifyDictationTargetSettled();
+          void this.processAndCommitDictation(finalText, target);
         }
       };
 
@@ -1429,6 +1735,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.listening = false;
         this.recognitionErrored = true;
         this.activeRecognition = null;
+        this.notifyDictationTargetSettled();
         this.setStatus("error");
         this.hideSubtitleOverlay();
         if (!this.capabilities.isMobile && event.error === "network") {
@@ -1446,10 +1753,11 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           this.activeRecognition = null;
         }
         this.listening = false;
+        this.notifyDictationTargetSettled();
         if (this.recognitionErrored) {
           return;
         }
-        if (!this.speechPlayer?.isActive) {
+        if (this.polishAbortControllers.size === 0 && !this.speechPlayer?.isActive) {
           this.setStatus("idle");
         }
       };
@@ -1466,6 +1774,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.activeRecognition = null;
         this.listening = false;
         this.recognitionErrored = true;
+        this.notifyDictationTargetSettled();
         this.setStatus("error");
         this.hideSubtitleOverlay();
         const message = redactSecrets(err instanceof Error ? err.message : String(err));
@@ -1483,6 +1792,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.activeRecognition = null;
     this.listening = false;
     this.recognitionErrored = false;
+    this.notifyDictationTargetSettled();
     if (recognition) {
       recognition.onresult = null;
       recognition.onerror = null;
@@ -1493,35 +1803,226 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         // Ignore stop errors if recognition already ended.
       }
     }
-    if (!this.speechPlayer?.isActive && this.currentStatus !== "idle") {
+    if (
+      this.polishAbortControllers.size === 0 &&
+      !this.speechPlayer?.isActive &&
+      this.currentStatus !== "idle"
+    ) {
       this.setStatus("idle");
     }
     this.hideSubtitleOverlay();
   }
 
+  async processAndCommitDictation(
+    rawText: string,
+    targetOverride?: (text: string) => void,
+  ): Promise<void> {
+    const replaced = createAsrReplacer(this.settings.asrReplacements)(rawText).trim();
+    if (!replaced) {
+      return;
+    }
+
+    let finalText = replaced;
+
+    if (this.settings.enableLlmPolish && !targetOverride) {
+      const controller = new AbortController();
+      this.polishAbortControllers.add(controller);
+      this.setStatus("busy", "Polishing");
+      this.showSubtitleOverlay("Polishing", "Polishing transcript...");
+
+      try {
+        const result = await polishDictatedTranscript(replaced, {
+          settings: this.settings,
+          secretStore: this.secretStore,
+          fetchImpl: this.corsFetch,
+          isMobile: this.capabilities.isMobile,
+          signal: controller.signal,
+        });
+        if (controller.signal.aborted) {
+          this.commitDictatedTextSilently(replaced);
+          return;
+        }
+        finalText = result.text.trim() || replaced;
+        if (result.fallbackReason && !this.polishFallbackNotified) {
+          this.polishFallbackNotified = true;
+          new Notice(
+            `Transcript polish skipped (${result.fallbackReason}); inserted unpolished text.`,
+          );
+        }
+      } finally {
+        this.polishAbortControllers.delete(controller);
+        if (
+          !controller.signal.aborted &&
+          this.polishAbortControllers.size === 0 &&
+          !this.isMicSessionActive() &&
+          !this.speechPlayer?.isActive &&
+          this.currentStatus !== "error"
+        ) {
+          this.setStatus("idle");
+        }
+      }
+    }
+
+    if (targetOverride) {
+      targetOverride(finalText);
+    } else {
+      this.commitDictatedText(finalText);
+    }
+    this.showSubtitleOverlay("Inserted", finalText, 2400);
+  }
+
+  private resolveTargetMarkdownView(): MarkdownView | null {
+    const active = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (active?.editor) {
+      return active;
+    }
+    const mostRecent = this.app.workspace.getMostRecentLeaf?.()?.view;
+    if (mostRecent instanceof MarkdownView && mostRecent.editor) {
+      return mostRecent;
+    }
+    for (const leaf of this.app.workspace.getLeavesOfType("markdown")) {
+      if (leaf.view instanceof MarkdownView && leaf.view.editor) {
+        return leaf.view;
+      }
+    }
+    return null;
+  }
+
+  private openVoiceQaModal(): void {
+    if (!this.settings.enableVoiceQa) {
+      new Notice("Enable optional BYOK voice assistant in Voice Mode settings first.");
+      return;
+    }
+
+    if (this.activeQaModal) {
+      const existing = this.activeQaModal;
+      this.activeQaModal = null;
+      existing.close();
+    }
+
+    const originView = this.resolveTargetMarkdownView();
+    const noteTitle = originView?.file?.basename ?? undefined;
+    const context = extractNoteQaContext(originView?.editor ?? null, noteTitle);
+
+    let qaReadAloudStarted = false;
+    const modal = new VoiceQaModal(this.app, context, {
+      settings: this.settings,
+      secretStore: this.secretStore,
+      fetchImpl: this.corsFetch,
+      isMobile: this.capabilities.isMobile,
+      isDictating: () => this.isMicSessionActive(),
+      onDictateQuestion: async (onTranscript, onSettled) => {
+        if (this.isMicSessionActive()) {
+          await this.toggleDictation("single");
+          return;
+        }
+        this.dictationTargetOverride = onTranscript;
+        this.dictationTargetSettled = onSettled ?? null;
+        await this.toggleDictation("single");
+        if (!this.isMicSessionActive()) {
+          this.notifyDictationTargetSettled();
+        }
+      },
+      onCancelDictation: () => {
+        this.abortActiveDictationSilently();
+      },
+      onSpeakSentence: (sentence) => {
+        if (!this.speechPlayer) {
+          return;
+        }
+        if (!qaReadAloudStarted) {
+          qaReadAloudStarted = true;
+          this.syncSpeechPlayerEngines();
+          this.overflowNotified = false;
+          this.speechPlayer.cancel();
+          this.readingNotePath = originView?.file?.path ?? null;
+        }
+        this.speechPlayer.speakSentences([sentence]);
+      },
+      onStopReadAloud: () => {
+        qaReadAloudStarted = false;
+        this.stopReadAloudSilently();
+      },
+      onInsertAtCursor: (answer) => {
+        const targetView = originView?.editor ? originView : this.resolveTargetMarkdownView();
+        if (!targetView?.editor) {
+          return false;
+        }
+        return insertDictatedText(targetView.editor, answer);
+      },
+      onModalClose: () => {
+        if (this.activeQaModal === modal) {
+          this.activeQaModal = null;
+        }
+      },
+    });
+
+    this.activeQaModal = modal;
+    modal.open();
+  }
+
+  private notifyDictationTargetSettled(): void {
+    const settled = this.dictationTargetSettled;
+    this.dictationTargetSettled = null;
+    this.dictationTargetOverride = null;
+    settled?.();
+  }
+
+  private abortActiveDictationSilently(): void {
+    this.dictationStartEpoch += 1;
+    this.startingDictation = false;
+    this.pointerHoldActive = false;
+    this.notifyDictationTargetSettled();
+    if (this.offlineSession && this.offlineSession.state !== "idle") {
+      void this.offlineSession.abort();
+    }
+    if (this.cloudSession && this.cloudSession.state !== "idle") {
+      void this.cloudSession.abort();
+    }
+    if (this.listening || this.activeRecognition) {
+      this.stopBrowserRecognition();
+    }
+    if (
+      this.polishAbortControllers.size === 0 &&
+      !this.speechPlayer?.isActive &&
+      this.currentStatus !== "error"
+    ) {
+      this.setStatus("idle");
+      this.hideSubtitleOverlay();
+    }
+  }
+
+  private commitDictatedTextSilently(text: string): boolean {
+    try {
+      const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+      const activeEl = resolveDeepActiveElement(activeDocument);
+
+      // 1. If the active MarkdownView CodeMirror 6 editor owns focus, always route through CM6 API
+      //    instead of hijacking its internal contenteditable DOM directly.
+      if (activeView?.editor && isMarkdownEditorFocused(activeView.containerEl, activeEl)) {
+        return insertDictatedText(activeView.editor, text);
+      }
+
+      // 2. Otherwise insert into an external focused input (e.g. sidebar Copilot Lexical / AI chat box).
+      if (insertIntoFocusedInput(activeDocument, text)) {
+        return true;
+      }
+
+      // 3. Fallback to the active or most recent open Markdown editor if focus moved to chrome/body.
+      const fallbackView = this.resolveTargetMarkdownView();
+      if (fallbackView?.editor) {
+        return insertDictatedText(fallbackView.editor, text);
+      }
+    } catch {
+      // Best-effort insertion during plugin unload; ignore torn-down workspace errors.
+    }
+    return false;
+  }
+
   commitDictatedText(text: string): void {
-    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
-    const activeEl = resolveDeepActiveElement(activeDocument);
-
-    // 1. If the active MarkdownView CodeMirror 6 editor owns focus, always route through CM6 API
-    //    instead of hijacking its internal contenteditable DOM directly.
-    if (view?.editor && isMarkdownEditorFocused(view.containerEl, activeEl)) {
-      insertDictatedText(view.editor, text);
-      return;
+    if (!this.commitDictatedTextSilently(text)) {
+      new Notice("No active editor or text input found for dictated text.");
     }
-
-    // 2. Otherwise insert into an external focused input (e.g. sidebar Copilot Lexical / AI chat box).
-    if (insertIntoFocusedInput(activeDocument, text)) {
-      return;
-    }
-
-    // 3. Fallback to the active Markdown editor if focus briefly moved to chrome (ribbon/status bar).
-    if (view?.editor) {
-      insertDictatedText(view.editor, text);
-      return;
-    }
-
-    new Notice("No active editor or text input found for dictated text.");
   }
 
   private async readSelectionOrNoteAloud(): Promise<void> {
@@ -1578,15 +2079,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       }
     }
 
-    this.dictationStartEpoch += 1;
-    this.startingDictation = false;
-    this.pointerHoldActive = false;
-    if (this.offlineSession && this.offlineSession.state !== "idle") {
-      void this.offlineSession.abort();
-    }
-    if (this.listening || this.activeRecognition) {
-      this.stopBrowserRecognition();
-    }
+    this.abortActiveDictationSilently();
 
     this.syncSpeechPlayerEngines();
     this.overflowNotified = false;

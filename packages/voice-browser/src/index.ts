@@ -86,6 +86,13 @@ export {
 } from './dictation-session.ts'
 
 export {
+  DEFAULT_CLOUD_SPEECH_RMS_THRESHOLD,
+  DEFAULT_CLOUD_MIN_SPEECH_MS,
+  CloudDictationSession,
+  type CloudDictationSessionOptions,
+} from './cloud-dictation-session.ts'
+
+export {
   VITS_DEFAULT_SPEAKER_ID,
   VITS_MIN_RATE,
   VITS_MAX_RATE,

@@ -90,6 +90,7 @@ export interface VoiceModeSettings {
   dictationLanguage: string;
   endpointSilenceMs: number;
   asrEndpointUrl: string;
+  asrModel: string;
   asrApiKeySecretId: string;
   asrReplacements: AsrReplacement[];
   enableSubtitleOverlay: boolean;
@@ -111,6 +112,7 @@ export interface VoiceModeSettings {
 
   // Optional BYOK AI model
   enableVoiceQa: boolean;
+  enableLlmPolish: boolean;
   llmPresetId: LlmPresetId;
   llmBaseUrl: string;
   llmModel: string;
@@ -130,6 +132,7 @@ export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
   dictationLanguage: "zh-CN",
   endpointSilenceMs: 1500,
   asrEndpointUrl: "",
+  asrModel: "",
   asrApiKeySecretId: "",
   asrReplacements: [],
   enableSubtitleOverlay: true,
@@ -149,6 +152,7 @@ export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
   ttsApiKeySecretIds: {},
 
   enableVoiceQa: false,
+  enableLlmPolish: false,
   llmPresetId: "deepseek",
   llmBaseUrl: "",
   llmModel: "",
@@ -164,6 +168,8 @@ export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
 export function createDefaultSettings(): VoiceModeSettings {
   return {
     ...DEFAULT_SETTINGS,
+    asrModel: DEFAULT_SETTINGS.asrModel,
+    enableLlmPolish: DEFAULT_SETTINGS.enableLlmPolish,
     asrReplacements: [],
     ttsApiKeySecretIds: {},
     llmApiKeySecretIds: {},
@@ -499,6 +505,7 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
       clampNumber(sanitized.endpointSilenceMs, 400, 5000, DEFAULT_SETTINGS.endpointSilenceMs),
     ),
     asrEndpointUrl: sanitizeOptionalEndpointUrl(sanitized.asrEndpointUrl),
+    asrModel: typeof sanitized.asrModel === "string" ? sanitized.asrModel.trim() : "",
     asrApiKeySecretId: cleanSecretId(sanitized.asrApiKeySecretId),
     asrReplacements,
     enableSubtitleOverlay:
@@ -532,6 +539,10 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
       typeof sanitized.enableVoiceQa === "boolean"
         ? sanitized.enableVoiceQa
         : DEFAULT_SETTINGS.enableVoiceQa,
+    enableLlmPolish:
+      typeof sanitized.enableLlmPolish === "boolean"
+        ? sanitized.enableLlmPolish
+        : DEFAULT_SETTINGS.enableLlmPolish,
     llmPresetId,
     llmBaseUrl: sanitizeOptionalEndpointUrl(sanitized.llmBaseUrl),
     llmModel: typeof sanitized.llmModel === "string" ? sanitized.llmModel.trim() : "",
