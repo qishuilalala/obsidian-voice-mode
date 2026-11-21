@@ -5,7 +5,7 @@
 ## 项目定位与当前阶段
 
 - **产品**：Obsidian 官方插件（ID `voice-mode`，Repo `qishuilalala/obsidian-voice-mode`，`minAppVersion: 1.11.4`，`isDesktopOnly: false`），也是跨平台 Voice Mode 系列开源矩阵的首发母仓。
-- **当前真实状态（`0.1.0` · Alpha 架构初始化阶段）**：已完成三包 Monorepo 基建、纯内核模块、浏览器音频契约、插件骨架与 CI/发布门禁；骨架内「朗读选区/笔记」已提供系统 `speechSynthesis` 预览，「切换听写」在 M1 前仅为宿主原生 `SpeechRecognition` 占位兜底（无内置 Google Speech Key 的桌面 Electron 不可用）。**本地离线 WASM 推理、Vault 外 SHA256 模型下载器与 BYOK 问答界面尚未接入**，开工前须先跑完 M0 6 项真机 Spike。
+- **当前真实状态（`0.1.0` · M0 真机 Spike 已全通，进入 M1 研发）**：已完成三包 Monorepo 基建、纯内核模块、浏览器音频契约、插件骨架与 CI/发布门禁，并于 2026-11-22 在真实 Obsidian `1.15.1`（Electron `43.8.9`）上跑通 **M0 全部 6 项真机 Spike**（数据归档于 [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md)）。当前骨架内「朗读选区/笔记」已提供系统 `speechSynthesis` 预览，「切换听写」正在由占位兜底推进至 M1 本地离线 WASM 听写闭环。
 
 ## 三包架构与硬依赖边界
 
@@ -19,7 +19,7 @@
 
 1. **双模运行时分流（ADR-0002）**：桌面默认走零外置 Web Worker 单模型 WASM（`Silero VAD` + `SenseVoice int8`）保住首装转化；Wave 3 可选统一本机 `voice-daemon`（`127.0.0.1` + Bearer Token + Origin 白名单）绕开 Obsidian 桌面端（Installer 1.14.4 / Electron 43.7.5 与 Installer 1.15.1 / Electron 43.8.9）V8 Memory Cage（`sherpa-onnx-node` 报 `External buffers are not allowed`）与 WASM `#3960` 静音缺陷，解锁 Kokoro 103 音色。
 2. **移动端降级红线**：`isDesktopOnly: false`，但运行时按 `Platform.isMobile` 强制屏蔽 200 MB+ 本地 WASM 模型以防 iOS WKWebView（~500 MB Jetsam）闪退，降级为 BYOK API + 系统语音。
-3. **声学与打断兜底**：原生 AEC3 生效才启用自动语音打断，失效或外放异常时自动回退 `bargeInMode=manual`；严禁内置逆向 Edge Read Aloud 私有 WebSocket。
+3. **声学与打断兜底**：仅在原生 AEC3 生效**且音频经 Chromium 渲染混音器输出（`HTMLAudioElement` / `AudioContext`）**时才允许自动语音打断，且打断采集须置 `autoGainControl: false`；系统 `speechSynthesis`（走 OS 独立守护进程无参考流）或 AEC 失效时强制锁定 `bargeInMode=manual`；严禁内置逆向 Edge Read Aloud 私有 WebSocket。
 4. **Markdown 朗读降噪**：`segmenter` 剥离 YAML Frontmatter、代码围栏（```` ``` ```` / `~~~`）、数学块（`$$...$$`）、裸 URL、Obsidian Callout 标记与 Markdown 管道表格，并将内联代码与 Wikilink 语法清理为自然口语文本，不依赖外部 System Prompt。
 5. **诚实宣称与真机门禁**：单测绿灯不代表声学或真实模型推理等价；任何发版均须实跑 [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md) 的真机门禁。
 

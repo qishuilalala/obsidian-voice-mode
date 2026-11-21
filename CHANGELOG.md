@@ -6,9 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Verified (M0 Real-Device Spikes — 2026-11-22)
+
+- **M0 6-item real-device gate completed** on macOS `27.2.1` (Apple M2 Max, 32 GB) inside Obsidian `1.15.1` (`Electron 43.8.9` / `Chromium 150.0.7871.250`), archived in `docs/qa/acceptance-checklist.md`:
+  - **S0-1**: Pure MEMFS Web Worker (`sherpa-onnx@2.0.2`) cold-loaded `Silero VAD` in `30 ms` and `SenseVoice int8` in `485 ms`, sustained a 15-minute (60-utterance) session at average `RTF = 0.2148` with flat `512 MB` WASM linear memory (`+348.7 MB` steady renderer RSS delta), and reclaimed memory cleanly upon `worker.terminate()`.
+  - **S0-2**: Verified `245.3 MB` out-of-vault model cache (`~/.cache/voice-mode/models/`) with pinned SHA256 checks, zero model files inside the Vault or `.obsidian/plugins/voice-mode/`, and `605.2 MB/s` read verification across full Obsidian process restarts.
+  - **S0-3**: Verified `10/10` consecutive mixed CJK/English/multiline injections with intact Undo/Redo across CodeMirror 6, core Search, Shadow DOM `<textarea>`, and `Copilot 4.0.20` (Lexical `contenteditable` verified via M0 CDP prototype using synthetic `ClipboardEvent("paste")`, scheduled to land in `editor-bridge.ts` in M1).
+  - **S0-4**: Built empirical `Origin: app://obsidian.md` CORS & loopback SSE matrix across 8 cloud endpoints + local loopback simulation (confirming CORS preflight/POST pass via `HTTP 401` on DeepSeek, DashScope Qwen, Kimi, SiliconFlow, OpenRouter, and Anthropic with direct-browser header; 3-chunk `fetch` SSE streaming and Ollama `Origin` block on local loopback server; and main-process `requestUrl` fallback for Volcengine Ark, OpenAI, and strict-Origin loopback).
+  - **S0-5**: Confirmed `k2-fsa/sherpa-onnx#3960` (`kokoro-int8` WASM `NaN` silence) persists in `2.0.2` (disabling WASM Kokoro in M2) while `#1939` (`vits-zh-ll` variable-length memory growth) is resolved (`438 MB` steady RSS over 80 sentences, `RTF = 1.275`).
+  - **S0-6**: Verified `48k->16k AudioWorklet` capture, measured `+8.99 dB` native Chromium AEC3 suppression on `HTMLAudioElement` (`autoGainControl: false`), identified missing Chromium render reference on OS `speechSynthesis` (locking `manual` barge-in for `system` TTS), and verified desktop `app.secretStorage` isolation (physical iOS/Android device verification tracked for M3).
+
 ### Planned (see `docs/plan/master-plan.md`)
 
-- **M0**: 6 pre-coding real-machine Spikes in Obsidian desktop (Installer 1.14.4 / Electron 43.7.5 & Installer 1.15.1 / Electron 43.8.9): Web Worker WASM RSS/RTF, Vault-external cache & Sync isolation, Copilot sidebar injection, domestic LLM CORS matrix, `sherpa-onnx` WASM `#3960`/`#1939` check, AEC3 & mobile probe.
 - **M1**: Desktop offline WASM dictation (`Silero VAD` + `SenseVoice int8`), Vault-external SHA256-verified model manager, custom ASR replacement UI, and editor/sidebar text injection.
 - **M2**: Spoken Markdown & pipe-table read-aloud, floating captions overlay, and AEC3 barge-in with `manual` fallback.
 - **M3**: Optional BYOK voice Q&A / transcript polish via `SecretStorage`, mobile graceful degradation verification, and 4 mandatory real-machine acoustic acceptance gates.

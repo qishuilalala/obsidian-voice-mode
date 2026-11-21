@@ -38,16 +38,16 @@
 | `packages/voice-browser`（`@voice-mode/browser`） | 浏览器/Electron 音频契约：16 kHz `AudioWorklet` 重采样、AEC3 探针、播放队列与 Worker 协议 | 仅依赖标准 Web/Audio API；禁 `obsidian` |
 | `packages/obsidian-plugin`（`@voice-mode/obsidian-plugin`） | 极薄 Obsidian 适配层，通过 `esbuild` 打包为根目录 `main.js`（严守 `< 5 MB` Obsidian Sync 预算） | `obsidian`（`minAppVersion: 1.11.4`） |
 
-### 接入前本机独立 WASM 基准（仅供参考）
+### Obsidian 真机 Web Worker WASM 实测基准（M0 门禁已通过 · 2026-11-22）
 
-测试环境：**Apple Silicon macOS、Node `v24.21.0`、`sherpa-onnx` WASM 14 MB、5 秒中文真实语音片段，采集日期 2026-11-21**。**Obsidian 桌面端（Installer 1.14.4 / Electron 43.7.5 与 Installer 1.15.1 / Electron 43.8.9）内 Web Worker 的真实内存、延迟与空闲回收尚未实测**，将作为 M0 阻断性 Spike 优先验证（见 [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md)）：
+实测环境：**Apple M2 Max macOS `27.2.1`（32 GB 内存）、真实 Obsidian `1.15.1`（`Electron 43.8.9` / `Chromium 150.0.7871.250`）渲染进程隔离 `MEMFS` Web Worker、`sherpa-onnx@2.0.2` WASM、连续 15 分钟（60 轮中英混说语料）会话**（完整记录见 [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md)；M1 插件端到端集成推进中）：
 
-| WASM 引擎 / 模型 | 冷加载耗时 | RTF（实时率） | 峰值 RSS | 规划定位 |
+| WASM 引擎 / 模型 | 冷加载耗时 | RTF（实时率） | 常驻 RSS 增量 | 定位 |
 | --- | ---: | ---: | ---: | --- |
-| `Silero VAD` | `27 ms` | — | 轻量常驻 | 端点检测与打断 VAD |
-| `SenseVoice int8` | `696 ms` | `0.258` | `460 MB` | M1 桌面默认单模型离线听写 |
-| `Zipformer2` | `1,939 ms` | `0.259` | `463 MB` | 可选流式识别 / Wave 3 `voice-daemon` |
-| `VITS` | `444 ms` | — | `581 MB` | M0 实测内存回收后决定是否作为可选桌面离线 TTS |
+| `Silero VAD` | `30 ms` | — | 含于下方同 Worker | 端点检测与打断 VAD |
+| `SenseVoice int8` | `485 ms` | `0.215`（15m 均值） | 稳态 `+348.7 MB`（峰值 `+527.5 MB`，WASM 堆恒定 `512 MB`） | M1 桌面默认单模型离线听写 |
+| `Zipformer2` | `1,939 ms`（Node 参考） | `0.259` | `463 MB`（Node 参考） | 可选流式识别 / Wave 3 `voice-daemon` |
+| `VITS`（`vits-zh-ll`） | `391 ms` | `1.268` | 80 句稳态 `438 MB` | M2 桌面显式可选离线 TTS（`#3960` 未修，Kokoro 留归 Wave 3 `voice-daemon`） |
 
 ---
 
@@ -94,8 +94,8 @@ pnpm run check:all
 
 ## 路线图与开源语音矩阵
 
-- **M0（下一步）**：Obsidian 桌面端（Installer 1.14.4 / Electron 43.7.5 与 Installer 1.15.1 / Electron 43.8.9）内 6 项开工前真机 Spike（WASM 内存/RTF、Vault 外缓存、Copilot 侧栏注入、国产 API CORS 矩阵、`sherpa-onnx` `#3960`/`#1939`、AEC3 与移动端探针）。
-- **M1**：桌面离线 WASM 听写（`Silero VAD` + `SenseVoice int8`）、自定义纠错词表、编辑器与第三方侧栏聚焦注入。
+- **M0（已完成 · 2026-11-22）**：Obsidian `1.15.1`（`Electron 43.8.9`）真机通过全部 6 项开工前 Spike（Worker WASM 15 分钟内存/RTF、Vault 外缓存隔离、Copilot `4.0.20` Lexical 侧栏注入、API CORS 与回环 SSE 矩阵、`sherpa-onnx@2.0.2` `#3960`/`#1939` 复验、原生 AEC3 与 `SecretStorage` 探针）。
+- **M1（推进中）**：桌面离线 WASM 听写（`Silero VAD` + `SenseVoice int8`）、自定义纠错词表、编辑器与第三方侧栏聚焦注入。
 - **M2**：Markdown/表格降噪按句朗读、悬浮字幕条与 AEC3 外放打断 / `manual` 兜底。
 - **M3**：基于 `SecretStorage` 的可选 BYOK 语音问答与润色、移动端降级实测、发版前 4 项真机声学门禁。
 - **M4**：向 `obsidianmd/obsidian-releases` 提交官方社区目录 PR 并发布正式版。

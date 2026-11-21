@@ -1,6 +1,6 @@
 # ADR-0002：双模语音运行时——默认零外置 Web Worker WASM + 可选统一 `voice-daemon`
 
-- **状态**：Accepted（默认 WASM 档在 M0 Spike 真机实测后最终定案）
+- **状态**：Accepted（2026-11-22 M0 真机 Spike S0-1 / S0-5 于 Obsidian `1.15.1` · Electron `43.8.9` 实测验证定案）
 - **日期**：2026-11-21
 - **关联文档**：[docs/plan/master-plan.md](../plan/master-plan.md)、[docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md)
 
@@ -30,4 +30,4 @@
 ## 后果
 
 - **正面**：保住零外置一键安装的转化漏斗，同时从架构上彻底规避 Electron V8 内存笼、WASM `#3960` 静音与多宿主重复占用数 GB 模型磁盘的问题。
-- **代价与约束**：`@voice-mode/browser` 必须抽象传输契约（本地 Worker / 远端 BYOK / 可选本地回环 HTTP/WS），且 M0 必须先在真实 Obsidian 桌面端（Electron 43.7.5 / 43.8.9）内验证 Worker 内存与回收行为，严禁在未过 M0 前锁定模型默认档。
+- **代价与约束**：`@voice-mode/browser` 必须抽象传输契约（本地 Worker / 远端 BYOK / 可选本地回环 HTTP/WS）。2026-11-22 M0 真机实测确认：Obsidian `1.15.1`（Electron `43.8.9`）的 Web Worker 默认暴露 `process.type === "worker"`，必须在 Worker 胶水层显式固定 `ENVIRONMENT_IS_NODE=false`、屏蔽 `NODERAWFS` 并注入纯 JS POSIX `path` 垫片以强制走隔离 `MEMFS`；配合单份 `ArrayBuffer` 零拷贝传入与会话初始化后立即 `FS.unlink` 释放重复文件缓冲时，`sherpa-onnx@2.0.2` 下 `Silero VAD` 冷载 `30 ms`、`SenseVoice int8` 冷载 `485 ms`、15 分钟连续 60 轮听写平均 `RTF = 0.2148`、稳态常驻增量 `+348.7 MB`（峰值 `+527.5 MB < 700 MB`）且 `worker.terminate()` 后可即时回收内存；`kokoro-int8` 在 `2.0.2` WASM 下仍输出全 `NaN`（`#3960` 未修），故 M2 禁用 WASM Kokoro，将已确认无内存泄漏（`#1939` 已修，80 句稳态 `438 MB`，单线程 `RTF = 1.22–1.275`）的 `vits-wasm` 作为桌面显式可选引擎（默认保持系统语音 + BYOK）。

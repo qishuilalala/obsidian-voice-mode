@@ -29,4 +29,4 @@
 ## 后果
 
 - **正面**：`@voice-mode/core` 保持绝对零运行时依赖，`main.js` 体积极小且不受上游 AI SDK 漏洞波及；彻底消除 `data.json` 随 Vault 同步泄露 API Key 的结构性风险。
-- **代价与约束**：不同国产模型厂商的 CORS 头、流式字段差异须在 M0 Spike-4 中逐一实测建表；无法在不支持 `SecretStorage` 的老旧 Obsidian 客户端中持久化 BYOK 密钥（需显式告知用户升级至支持版本）。
+- **代价与约束**：2026-11-22 M0 Spike-4 在真实 Obsidian `1.15.1`（`Origin: app://obsidian.md`）下经占位密钥跨域非简单请求（`OPTIONS` 预检 + `POST`）与本机 `node:http` 回环服务实测确认：DeepSeek、百炼 Qwen、Kimi、SiliconFlow、OpenRouter 与带 `anthropic-dangerous-direct-browser-access: true` 的 Anthropic 均放行 `app://obsidian.md` CORS（返回可读 `HTTP 401` JSON），回环服务验证 `fetch` `ReadableStream` 可正常逐块解析 SSE 分片；而火山方舟 Doubao、OpenAI 及模拟默认 Ollama `Origin` 策略的回环端点（未配 `OLLAMA_ORIGINS`）会被 `app://obsidian.md` CORS 拦截，Obsidian 适配层在 M3 须对 CORS 拦截场景自动回退主进程 `requestUrl`（非流式整包返回）；无法在不支持 `SecretStorage` 的老旧 Obsidian 客户端中持久化 BYOK 密钥（需显式告知用户升级至支持版本）。

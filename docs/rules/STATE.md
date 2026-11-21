@@ -1,46 +1,43 @@
-# 当前恢复点（STATE · 2026-11-21）
+# 当前恢复点（STATE · 2026-11-22）
 
 > 本文件为唯一任务恢复点，按现状重写维护、**严格保持 ≤ 120 行**，不追加流水账。严禁将尚未通过真机验证的规划能力写成“已完成”。
 
 ## 当前基线版本
 
-- **版本基线**：`0.1.0`（Alpha 架构初始化阶段；尚未推送正式发布 Tag，尚未向 `obsidianmd/obsidian-releases` 提审）。
+- **版本基线**：`0.1.0`（M0 6 项真机 Spike 已全通闭环，正在推进 M1 桌面离线 WASM 听写；尚未推送正式发布 Tag，尚未向 `obsidianmd/obsidian-releases` 提审）。
 - **仓库身份**：`qishuilalala/obsidian-voice-mode`（Obsidian 插件 ID `voice-mode`，`minAppVersion: 1.11.4`，`isDesktopOnly: false`）。
-- **工具链锁定（锁文件实测）**：`obsidian@1.14.4`、`eslint-plugin-obsidianmd@0.6.0`、`esbuild@0.25.12`（`^0.25.0`）、`typescript@5.9.3`（`^5.8.0`）、Node `>= 22.18.0`（单测直导 `.ts`，CI 固定 Node 22 + `pnpm@12.21.0`）。
+- **工具链与真机宿主基线**：`obsidian@1.14.4`（类型）、`eslint-plugin-obsidianmd@0.6.0`、`esbuild@0.25.12`、`typescript@5.9.3`、Node `>= 22.18.0`；本机实测真机为 macOS `27.2.1`（Apple M2 Max / 32 GB）上的 **Obsidian `1.15.1`（Electron `43.8.9` / Chromium `150.0.7871.250`）**。
 
 ## 已落地 vs 尚未实现（诚实边界）
 
-### 已落地（`0.1.0` 架构初始化阶段）
+### 已落地
 
 1. **三包 Monorepo 与构建/合规门禁**：
    - `pnpm-workspace.yaml`、`tsconfig.base.json`、`esbuild.config.mjs`（打包至根目录 `main.js`）、`eslint.config.mjs`（含 `eslint-plugin-obsidianmd` 与跨包导入红线）；
-   - `manifest.json`、`versions.json`、`styles.css`、`scripts/check-release-gate.mjs`、`scripts/version-bump.mjs`。
+   - `manifest.json`、`versions.json`、`styles.css`、`scripts/check-release-gate.mjs`、`scripts/version-bump.mjs`、三端 CI 与合规 Release 工作流。
 2. **共享核心、音频契约与插件骨架**：
    - `packages/voice-core`（`@voice-mode/core`）：零依赖纯模块（`segmenter`、`asr-replacements`、`emotion`、`engine-kind`、`voice-catalog`、`redact`、`contracts`、`llm-router`）；
    - `packages/voice-browser`（`@voice-mode/browser`）：浏览器/Electron 音频契约（`audio-worklet-source`、`resample`、`aec-probe`、`playback-queue`、`worker-protocol`）；
-   - `packages/obsidian-plugin`（`@voice-mode/obsidian-plugin`）：插件骨架、设置面板、状态条、字幕浮层与运行时守卫（`runtime-guard`）；已注册 4 条命令——其中「朗读选区/笔记」已提供零配置系统 `speechSynthesis` 预览，「切换听写」在 M1 离线 WASM 落地前仅在宿主浏览器支持原生 `SpeechRecognition` 时作为占位兜底（无内置 Google Speech Key 的桌面 Electron 不可用，且在支持的浏览器/WebView 下会将语音发往对应浏览器/系统语音服务商）。
-3. **治理、CI/CD 与增长资产**：
-   - `.github/workflows/ci.yml`（Ubuntu/macOS/Windows 三端矩阵 + `audit`）、`.github/workflows/release.yml`（无 `v` 前缀 Tag 与 `CHANGELOG.md` 字面校验 + 5 MB 体积门 + 仅上传 3 个合规附件）、Issue/PR 模板；
-   - `CONTEXT.md`、`docs/plan/master-plan.md`、ADR `0001`–`0004`、`docs/qa/acceptance-checklist.md`、`docs/distribution/launch-playbook.md`、`README.md`、`README.zh-CN.md`、`SECURITY.md`、`CONTRIBUTING.md`、`CODE_OF_CONDUCT.md`、`CHANGELOG.md`、`LICENSE`。
+   - `packages/obsidian-plugin`（`@voice-mode/obsidian-plugin`）：插件骨架、设置面板、状态条、字幕浮层与运行时守卫（`runtime-guard`）。
+3. **M0 全部 6 项真机 Spike（2026-11-22 实测通过，详见 [docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md)）**：
+   - **S0-1（`Pass`）**：Obsidian `1.15.1` Web Worker 内加载 `sherpa-onnx@2.0.2` WASM（`19 ms`）+ `Silero VAD`（`30 ms`）+ `SenseVoice int8`（`485 ms`），900 秒连续 60 轮真实中英混说会话平均 `RTF = 0.2148`，峰值增量 `+527.5 MB`、稳态增量 `+348.7 MB`、WASM 线性堆恒定 `512 MB`，`worker.terminate()` 后 30 秒内渲染进程 RSS 从 `779.0 MB` 回落至 `469.3 MB`；
+   - **S0-2（`Pass`）**：`245.3 MB` 模型与 WASM 落盘 `~/.cache/voice-mode/models/`，SHA256 100% 匹配，杀进程重启后复读 `605.2 MB/s`，Vault 与插件目录模型文件数为 `0`；
+   - **S0-3（`Pass`，M0 原型已验 / M1 合入源码）**：CM6、搜索框、Shadow DOM `<textarea>` 及真实 `Copilot 4.0.20`（Lexical `contenteditable`，经 M0 CDP 原型验证合成内存态 `ClipboardEvent("paste")` 适配，计划于 M1 写入 `editor-bridge.ts`）连续 `10/10` 注入与 Undo/Redo 全部通过；
+   - **S0-4（`Mitigated/Pass`）**：占位密钥跨域预检/POST 实测确认 DeepSeek、百炼 Qwen、Kimi、SiliconFlow、OpenRouter 与带直连头的 Anthropic 放行 `app://obsidian.md` CORS（回环服务验证 `fetch` 3 分片流式 SSE 正常）；火山方舟 Doubao、OpenAI 及默认 Ollama `Origin` 规则回环模拟遭 CORS 拦截，走主进程 `requestUrl` 100% 可达（本机未装 Ollama CLI，`:11434` 返回 `ERR_CONNECTION_REFUSED`）；
+   - **S0-5（`Mitigated/Pass`）**：`sherpa-onnx@2.0.2` 下 `kokoro-int8` WASM 仍输出全 `NaN`（`#3960` 未修，M2 禁用 WASM Kokoro）；`vits-zh-ll` 连续 80 句变长合成稳态 `438 MB`（`#1939` 已修，单线程 `RTF = 1.275`，M2 作为桌面可选引擎）；
+   - **S0-6（`Mitigated/Pass`）**：`48k->16k AudioWorklet` 正常运转，关闭 AGC 后 `HTMLAudioElement` 实测原生 AEC3 抑制 `+8.99 dB`，系统 `speechSynthesis` 无 Chromium 参考流（M2 在 `system` TTS 下强制锁定 `manual` 打断）；桌面 `SecretStorage` 往返读写与 `detectRuntimeCapabilities(true)` 逻辑守卫通过（iOS/Android 物理真机留待 M3 验收）。
 
-### 尚未实现 / 待 M0–M3 落地（当前不可用于离线听写）
+### 尚未实现 / 待 M1–M6 落地
 
-- **M0（阻断下一步）**：6 项真机 Spike 均处于 `Pending`（Obsidian 桌面端 Installer 1.14.4 / Electron 43.7.5 与 Installer 1.15.1 / Electron 43.8.9 内 Web Worker WASM 内存/RTF、Vault 外缓存与 Sync 隔离、Copilot 侧栏注入、国产 API CORS 实测、`sherpa-onnx` `#3960`/`#1939` 核查、AEC3 与移动端探针）。
-- **M1**：桌面本地离线 WASM 听写（`Silero VAD` + `SenseVoice int8`）、Vault 外 SHA256 模型下载器、纠错词表完整闭环、编辑器与第三方侧栏聚焦注入。
-- **M2**：Markdown/表格按句流式朗读与可选离线 TTS、悬浮字幕条完善、AEC3 外放打断。
-- **M3**：BYOK 语音问答与润色 UI、`SecretStorage` 实机验证、iOS/Android 移动端降级实测、发版前 4 项真机声学必过门禁。
+- **M1（当前正在实施）**：桌面本地离线 WASM 听写闭环（Vault 外用户显式触发 + SHA256 校验 + HuggingFace/`hf-mirror.com` 模型管理器、Web Worker `Silero VAD` + `SenseVoice int8`、纠错词表可视化编辑、含 Lexical 兼容的编辑器/侧栏注入）。
+- **M2**：Markdown/表格按句流式朗读与可选离线 `vits-wasm` / BYOK TTS、悬浮字幕条完善、AEC3 外放打断（`system` TTS 自动锁定 `manual`）。
+- **M3**：BYOK 语音问答与润色 UI（含 `requestUrl` CORS 兜底路由）、移动端真机降级实测、发版前 4 项真机声学必过门禁。
 - **M4–M6**：`obsidian-releases` 提审上架、Wave 2 `sillytavern-voice-mode`、Wave 3 统一本机 `voice-daemon` 与 Chrome/Edge 扩展。
 
 ## 当前首要下一步（Next Action）
 
-1. 复核 `0.1.0`（Alpha 架构初始化阶段）全量本地门禁（`pnpm run check:all` 全绿）。
-2. 启动 **M0 6 项真机 Spike**，在真实桌面版 Obsidian（Installer 1.14.4 / Electron 43.7.5 与 Installer 1.15.1 / Electron 43.8.9）及移动设备中实测并把真实数据填入 [docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md)。
-3. 仅在 M0 全部通过（或确认回退架构并更新 ADR）后，启动 M1 离线 WASM 听写实现。
-
-## 维护者与安全边界
-
-- **真机验收不可跳过**：任何音频采集、朗读、打断或模型推理能力在通过真机检查前不得移除 Alpha / 计划中标识。
-- **凭证与缓存红线**：严禁提交 API Key、私人录音、模型二进制或生成产物 `main.js` 到公开仓库。
+1. 按 M0 实测结论落地 **M1 桌面离线 WASM 听写闭环**（模型管理器、Web Worker `Silero VAD` + `SenseVoice int8` 引擎、纠错词表 UI、Lexical 兼容文本注入器与空闲 Worker 自动卸载）。
+2. 完成 M1 全量单测、`pnpm run check:all`、独立红队对抗审查及真实 Obsidian `1.15.1` 断网离线听写端到端验收后推进 M2。
 
 ## 关键入口
 
@@ -48,6 +45,5 @@
 | --- | --- |
 | [CONTEXT.md](../../CONTEXT.md) | 核心不变量、三包边界与常用命令 |
 | [docs/plan/master-plan.md](../plan/master-plan.md) | 完整实测基准与 M0–M6 里程碑规划 |
-| [docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md) | M0 Spike、4 项真机声学门禁与移动端降级清单 |
+| [docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md) | M0 Spike 实测报告、4 项真机声学门禁与移动端降级清单 |
 | [docs/adr/README.md](../adr/README.md) | 架构决策记录（0001–0004） |
-| [docs/distribution/launch-playbook.md](../distribution/launch-playbook.md) | 官方提审排雷、15 秒 Demo 与首发推广策略 |

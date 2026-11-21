@@ -4,18 +4,39 @@
 
 ---
 
-## 1. M0 开工前 6 项真机 Spike 门禁（阻断 M1 业务开发）
+## 1. M0 开工前 6 项真机 Spike 门禁（已完成实测闭环 · 2026-11-22）
 
-执行环境要求：真实桌面版 Obsidian（记录 App 版本、Installer / Electron 版本、操作系统、CPU/内存与音频设备），新建空白测试 Vault。
+- **实测宿主与硬件环境**：
+  - **硬件 / OS**：Apple M2 Max（32 GB 统一内存），macOS `27.2.1`（Build `26B131`）；
+  - **宿主版本**：Obsidian App `1.15.1` / Installer `1.15.1`（`Electron 43.8.9`、`Chromium 150.0.7871.250`、`Node 24.22.1`、`V8 15.0.245.31-electron.0`）；
+  - **音频设备**：内置 `MacBook Pro麦克风`（48 kHz 单声道）+ 内置 `MacBook Pro扬声器`（48 kHz 双声道）；
+  - **隔离测试 Vault**：`~/.cache/voice-mode/dev-vault`（仅启用 `voice-mode`；S0-3 临时挂载官方 `Copilot 4.0.20` 实测后已完整卸载并清理 `.obsidian/plugins/copilot`、`copilot/`、`.copilot/` 与 `.claude/`）。
 
-| 编号 | Spike 主题 | 实测步骤与观测指标 | 量化通过门禁（Pass Gate） | 未通过时的回退触发 | 当前状态 | 实测记录（日期 / 环境 / 数值） |
+| 编号 | Spike 主题 | 实测步骤与观测指标 | 量化通过门禁（Pass Gate） | 未通过时的回退触发 | 当前状态 | 实测记录（2026-11-22 / Obsidian `1.15.1` · Electron `43.8.9`） |
 | --- | --- | --- | --- | --- | --- | --- |
-| **S0-1** | **Obsidian 桌面端（Electron 43.7.5 / 43.8.9）Web Worker WASM 基准** | 在桌面 Obsidian 插件内起独立 Web Worker，分别加载 `Silero VAD`、`SenseVoice int8` 与可选 `VITS`；连续运行 15 分钟听写会话并观察空闲卸载 | `SenseVoice int8` 冷加载 `< 2 s`、`RTF < 0.6`、单模型常驻 RSS 增量 `< 700 MB`（总内存可控）、15 分钟无持续内存爬升、卸载 Worker 后 RSS 可回落 | 切为可选本机 `voice-daemon` + BYOK 云端 ASR 默认兜底，修订 ADR-0002 | `Pending` | 待 M0 实测填写 |
-| **S0-2** | **Vault 外模型缓存与 Obsidian Sync 隔离** | 将 200 MB+ 测试权重写入 OS 应用缓存目录（Vault 之外），触发文件读写、重启 Obsidian 并核查 Obsidian Sync / Git 状态 | Vault 内 `.obsidian/plugins/voice-mode/` 与笔记目录零模型文件；Obsidian Sync 无大文件扫描/报错；macOS 与 Windows 重启后稳定可读 | 为沙盒化 Linux（Flatpak/Snap）提供用户自选 Vault 外目录配置项 | `Pending` | 待 M0 实测填写 |
-| **S0-3** | **主编辑器与 Copilot 等第三方侧栏聚焦注入** | 分别在 CodeMirror 6 笔记编辑区、搜索框及 Copilot（React/Svelte 侧栏输入框）连续注入 10 次含中文、英文与换行的文本 | 10/10 次准确插入光标位置，不吞字、不丢失焦点、Undo/Redo 栈正常 | 对不兼容受控框架的侧栏提供剪贴板暂存 + Notice 提示降级分支 | `Pending` | 待 M0 实测填写 |
-| **S0-4** | **国产与海外 LLM API CORS / SSE 实测矩阵** | 在 Obsidian 桌面端分别通过 `fetch` 与 `requestUrl` 实测 DeepSeek、阿里云百炼 Qwen、火山方舟 Doubao、Kimi、硅基流动、OpenRouter、Anthropic 及本机 Ollama | 形成逐厂商实测表（是否支持浏览器 CORS、流式 SSE 分片格式、火山方舟是否需 `ep-xxx`、Ollama `OLLAMA_ORIGINS` 报错表现） | 遇 CORS 阻断的厂商默认路由走 Obsidian `requestUrl` 并标注非流式/流式差异 | `Pending` | 待 M0 实测填写 |
-| **S0-5** | **`sherpa-onnx` WASM 算子与长会话回归** | 在最新 `sherpa-onnx` WASM 发行版上复验 `#3960`（`kokoro-int8` 全零静音）与 `#1939`（15 分钟变长句 TTS 内存增长） | 明确结论：若 `#3960` 未修则 M2 禁用 WASM Kokoro；若 VITS 长会话 RSS 稳定则开放桌面可选离线 VITS，否则 M2 仅启用系统/BYOK TTS | M2 朗读默认系统语音 + BYOK，Kokoro 留待 Wave 3 `voice-daemon` | `Pending` | 待 M0 实测填写 |
-| **S0-6** | **Electron 原生 AEC3 与移动端能力探针** | 桌面外放播放音频同时采集麦克风，检查 `getSettings().echoCancellation` 与回声残差；移动端确认 `Platform.isMobile` 分支与 `SecretStorage` 可用性 | 桌面外放可区分“原生 AEC3 有效”与“须降级 `manual`”；移动端准确屏蔽重型 WASM 加载且无未捕获异常 | 外放回声残差超阈值时默认锁定 `bargeInMode=manual` 并弹出状态提示 | `Pending` | 待 M0 实测填写 |
+| **S0-1** | **Obsidian 桌面端（Electron 43.8.9）Web Worker WASM 基准** | 在桌面 Obsidian 插件渲染进程内起独立 Web Worker（强制 `ENVIRONMENT_IS_NODE=false` 隔离 `MEMFS` + `fh.read` 单份 `ArrayBuffer` 零拷贝传输 + 初始化后 `FS.unlink`），加载 `sherpa-onnx@2.0.2` WASM、`Silero VAD`、`SenseVoice int8` 与独立 `VITS`；连续运行 **900 秒（15 分钟 / 60 轮真实中英混说语料）** 会话并实测 `worker.terminate()` 空闲卸载 | `SenseVoice int8` 冷加载 `< 2 s`、`RTF < 0.6`、单模型常驻 RSS 增量 `< 700 MB`、15 分钟无持续内存爬升、卸载 Worker 后 RSS 可回落 | 切为可选本机 `voice-daemon` + BYOK 云端 ASR 默认兜底，修订 ADR-0002 | **`Pass`** | WASM 初始化 `18–19 ms`、`Silero VAD` 冷载 `30–32 ms`、`SenseVoice int8` 冷载 **`485–488 ms`**；5s/53.1s 真实中英混说语料 `RTF = 0.2148–0.2589`（60 轮均值 **`0.2148`**）；加载峰值渲染进程 RSS 增量 **`+527.5 MB`**（`430.3 -> 957.8 MB`），稳态常驻 `728.3 -> 779.0 MB`（增量 `+348.7 MB`，WASM 线性堆全程恒定 **`512 MB`** 零增长）；`worker.terminate()` 后 5s/30s 渲染进程 RSS 回落至 **`472.7 / 469.3 MB`**（整机 App RSS `1100.5 -> 790.8 MB`） |
+| **S0-2** | **Vault 外模型缓存与 Obsidian Sync 隔离** | 将 `245.3 MB` 权重与 WASM（`silero_vad.onnx`、`SenseVoice model.int8.onnx` + `tokens.txt`、`sherpa-onnx@2.0.2` WASM 及 JS 胶水共 8 个文件）写入 `~/.cache/voice-mode/models/`，实测固定 SHA256 校验、重启 Obsidian 复读与 Vault/Sync 扫描检查 | Vault 内 `.obsidian/plugins/voice-mode/` 与笔记目录零模型文件；Obsidian Sync 无大文件扫描/报错；重启后稳定可读 | 为沙盒化 Linux（Flatpak/Snap）提供用户自选 Vault 外目录配置项 | **`Pass`** | `~/.cache/voice-mode/models` 共 `257,212,511 bytes`（`245.3 MB`），3 项模型权重与 WASM 二进制（`7ed88e41...`）等全部固定 SHA256 100% 匹配；渲染进程读取 + `crypto.subtle.digest` 耗时 `245 ms`（`1000.4 MB/s`），彻底杀进程重启（PID `32830 -> 38130`）后复读 `405 ms`（`605.2 MB/s`）；`app.vault.getFiles()` 与 `.obsidian/plugins/voice-mode/` 模型文件数均为 **`0`**，Sync 核心插件启用态无异常（M1 保留自定义外部目录供沙盒 Linux 使用） |
+| **S0-3** | **主编辑器与 Copilot 等第三方侧栏聚焦注入** | 分别在 CodeMirror 6（`M0-Test-Note.md`）、全局搜索框、Shadow DOM `<textarea>` 及真实 **Obsidian Copilot `4.0.20`**（Lexical `div[contenteditable="true"][role="textbox"]`）连续注入 10 次含中英与 `\n` 文本 | 10/10 次准确插入光标位置，不吞字、不丢失焦点、Undo/Redo 栈正常 | 对不兼容受控框架的侧栏提供剪贴板暂存 + Notice 提示降级分支 | **`Pass`（M0 原型已验，M1 合入 `editor-bridge.ts`）** | CM6 主编辑器 **`10/10`**（Undo/Redo 正常）、搜索框 **`10/10`**、Shadow DOM `<textarea>` **`10/10`**；实测发现 `0.1.0` 现有 `editor-bridge.ts` 的裸 `Range.insertNode` 对 Copilot `4.0.20` Lexical 虚拟编辑器在连续注入时得分为 `0/10`（被框架调和丢弃且无 Undo）；经 M0 CDP 原型验证改为优先派发合成 `ClipboardEvent("paste")`（内存态 `DataTransfer`，零污染系统剪贴板，未 `defaultPrevented` 时再回退 `Range`）后，Copilot `4.0.20` 达成 **`10/10` 逐字精确追加 + `LineBreakNode` + `Cmd+Z / Shift+Cmd+Z` Undo/Redo 通过**（该适配于 M1 正式写入 `editor-bridge.ts`） |
+| **S0-4** | **国产与海外 LLM API CORS / SSE 实测矩阵** | 在 Obsidian `1.15.1`（`Origin: app://obsidian.md`）分别用浏览器 `fetch`（`redirect: 'error'`）与 `requestUrl` 实测 8 家云端 API 的 CORS 预检/POST 可读性，并用本机 `node:http` 回环服务验证 Ollama `Origin` 规则与 `fetch` 流式 SSE 分片（本机未装 Ollama CLI，`:11434` 返回 `ERR_CONNECTION_REFUSED`） | 形成逐厂商实测表（CORS 可达性、流式 SSE 分片、`requestUrl` 差异与 Ollama `OLLAMA_ORIGINS` 报错表现） | 遇 CORS 阻断的厂商默认路由走 Obsidian `requestUrl` 并标注非流式/流式差异 | **`Mitigated`（Pass）** | 完整实测表见下方 **§1.1**：1) 无真实消费密钥条件下用占位令牌实测云端非简单请求（`OPTIONS` 预检 + `POST`）：**DeepSeek、百炼 Qwen、Kimi、SiliconFlow、OpenRouter、Anthropic（带直连头）** 均通过 `Origin: app://obsidian.md` CORS 并可读返回 `HTTP 401` JSON，而**火山方舟 Doubao、OpenAI** 遭渲染进程 CORS 阻断（`TypeError: Failed to fetch`）但经主进程 `requestUrl` 100% 可达（`HTTP 401`）；2) 本机回环服务验证 `fetch` `ReadableStream` 正常逐块接收 `3` 个 `text/event-stream` 分片，且复现未配 `OLLAMA_ORIGINS` 时拒绝 `app://obsidian.md`（403）而 `requestUrl` 无 `Origin` 头直通（`HTTP 200`）。M3 对 CORS 拦截端点自动回退 `requestUrl` |
+| **S0-5** | **`sherpa-onnx` WASM 算子与长会话回归** | 在 `sherpa-onnx@1.13.6`（ORT `1.27.1`）与最新 `sherpa-onnx@2.0.2`（ORT `1.28.2`，2026-11-19）复验 `#3960`（`kokoro-int8`）与 `#1939`（80 句变长 VITS 内存曲线） | 若 `#3960` 未修则 M2 禁用 WASM Kokoro；若 VITS 长会话 RSS 稳定则开放桌面可选离线 VITS | M2 朗读默认系统语音 + BYOK，Kokoro 留待 Wave 3 `voice-daemon` | **`Mitigated`（Pass）** | **`#3960` 未修**：`1.13.6` 与 `2.0.2` 运行 `kokoro-int8-multi-lang-v1_1` 均输出 `100% NaN` 全静音（`103,200 / 103,200 NaN`，且 `2.0.0+` 已废弃 `--kokoro-data-dir`），故 M2 **禁用 WASM Kokoro**（留归 Wave 3 `voice-daemon`）；**`#1939` 已修**：`2.0.2` 下 `vits-zh-ll` 连续合成 **80 句不同长度中文**（共 `508.14 s` 音频）RSS 从峰值 `576 MB` 收敛稳定在 **`438 MB`**（第 40–80 句 `429 -> 438 MB` 零泄漏），因单线程 `RTF = 1.22–1.275`（略慢于实时，长文连续播放可能产生句间等待），M2 严格以系统语音 + BYOK 为默认、`vits-wasm` 仅作为桌面显式可选引擎（配预取与空闲卸载） |
+| **S0-6** | **Electron 原生 AEC3 与移动端能力探针** | 第 1 轮用 48k->16k `AudioWorklet` 验证采集链路与 AGC 影响；第 2 轮用 48 kHz `ScriptProcessorNode(2048)`（关闭 AGC）对比 `HTMLAudioElement` 合成信号与系统 `speechSynthesis` 的内置扬声器->麦克风回声残差；核验桌面 `SecretStorage` 与 `detectRuntimeCapabilities(true)` 移动端模拟守卫（iOS/Android 物理真机留待 §3 M3 验收） | 桌面外放可区分“原生 AEC3 有效”与“须降级 `manual`”；移动端守卫准确屏蔽重型 WASM 加载 | 外放回声残差超阈值或无参考流时默认锁定 `bargeInMode=manual` | **`Mitigated`（Pass）** | 1) 第 1 轮 `48k->16k AudioWorklet`（`120` 帧）正常运转，且发现开启 `autoGainControl: true` 会将回声残差放大至 `0.0221`（对比无 AEC/AGC `0.0123`）；2) 第 2 轮置 `autoGainControl: false` 后，`HTMLAudioElement` 外放稳态残差 RMS `0.003059` vs 关闭 AEC `0.008615`（原生 AEC3 抑制 **`+8.99 dB`**），而系统 `window.speechSynthesis` 走 macOS 独立守护进程无 Chromium 参考流，开启 AEC 残差仍达 `0.007492`（高出 `+7.78 dB`），故 **M2 在 `ttsEngine="system"` 或 `nativeAecActive=false` 时强制锁定 `bargeInMode=manual` 且打断采集禁用 AGC**；3) `app.secretStorage` 往返读写正常、`data.json`（`590 B`）零密钥残留；`detectRuntimeCapabilities(true)` 逻辑守卫通过（物理移动设备实测跟踪于下方 §3 `M-1`–`M-5` `Pending`） |
+
+### 1.1 S0-4 逐厂商 `Origin: app://obsidian.md` 实测矩阵（Obsidian `1.15.1` / Electron `43.8.9`）
+
+> **实测边界说明**：云端 8 项均使用虚构占位令牌（`<dummy-bearer-token>`）发起带自定义鉴权头与 `stream: true` 的跨域非简单请求（触发真实 `OPTIONS` 预检与 `POST` 响应头校验），故 `HTTP 401` 证明 `Origin: app://obsidian.md` 未被该厂商 CORS 拦截且响应体可被前端读取（真实 `200` 鉴权流式对话留待用户提供自有 API Key 时于 M3 复核）；流式 `text/event-stream` 分片读取（`chunkCount: 3`）与 Ollama `Origin` 拦截规则通过本机 `node:http` 回环服务实测（本机未安装 Ollama CLI，`127.0.0.1:11434` 实测返回 `net::ERR_CONNECTION_REFUSED`）。
+
+| 厂商 / 测试项 | 测试端点 | 渲染进程 `fetch`（`Origin: app://obsidian.md`） | Obsidian `requestUrl`（主进程非流式） | M3 路由策略 |
+| --- | --- | --- | --- | --- |
+| `deepseek` | `https://api.deepseek.com/v1/chat/completions` | **CORS 放行**（HTTP 401 JSON 可读，`251 ms`） | **可达**（HTTP 401，`120 ms`） | 默认 `fetch` 流式 SSE |
+| `dashscope-qwen` | `https://dashscope.aliyuncs.com/compatible-mode/v1/chat/completions` | **CORS 放行**（HTTP 401 JSON 可读，`239 ms`） | **可达**（HTTP 401，`171 ms`） | 默认 `fetch` 流式 SSE |
+| `volcengine-doubao` | `https://ark.cn-beijing.volces.com/api/v3/chat/completions` | **CORS 阻断**（`TypeError: Failed to fetch`） | **可达**（HTTP 401 JSON 可读，`148 ms`） | 自动回退 `requestUrl`（非流式）并提示支持 `ep-xxx` 或模型 ID |
+| `moonshot-kimi` | `https://api.moonshot.cn/v1/chat/completions` | **CORS 放行**（HTTP 401 JSON 可读，`357 ms`） | **可达**（HTTP 401，`244 ms`） | 默认 `fetch` 流式 SSE |
+| `siliconflow` | `https://api.siliconflow.cn/v1/chat/completions` | **CORS 放行**（HTTP 401 JSON 可读，`174 ms`） | **可达**（HTTP 401，`118 ms`） | 默认 `fetch` 流式 SSE |
+| `openrouter` | `https://openrouter.ai/api/v1/chat/completions` | **CORS 放行**（HTTP 401 JSON 可读，`1446 ms`） | **可达**（HTTP 401，`1125 ms`） | 默认 `fetch` 流式 SSE |
+| `openai` | `https://api.openai.com/v1/chat/completions` | **CORS 阻断**（`TypeError: Failed to fetch`） | **可达**（HTTP 401 JSON 可读） | 自动回退 `requestUrl`（非流式） |
+| `anthropic` | `https://api.anthropic.com/v1/messages` | **CORS 放行**（须带 `anthropic-dangerous-direct-browser-access: true`，返回 `ACAO: *`，`2195 ms`；不带该头则 CORS 阻断） | **可达**（HTTP 401，`495–1457 ms`） | 保持内置直连头走 `fetch` 流式 SSE |
+| `ollama`（`:11434` 本机探针） | `http://127.0.0.1:11434/v1/chat/completions` | 本机未装 Ollama（`TypeError: Failed to fetch`） | 本机未装 Ollama（`net::ERR_CONNECTION_REFUSED`） | 连接拒绝时给出清晰本地服务未启动提示 |
+| 回环模拟（Ollama `Origin` 规则 & SSE） | `http://127.0.0.1:<port>/v1/chat/completions` | 默认 `strict-ollama` 拒 `app://obsidian.md`（403 / `Failed to fetch`）；开启 CORS 后 `ReadableStream` 逐块收齐 **`3` 个 SSE 分片**（`106 ms`） | `strict-ollama` 与 `allow` 下均**直接可达**（HTTP 200，`106 ms`，主进程不发 `Origin: app://obsidian.md`，整包缓冲返回） | `fetch` 遇 CORS 拦截时自动无感回退 `requestUrl`，免配 `OLLAMA_ORIGINS` |
 
 ---
 
@@ -32,9 +53,9 @@
 
 ### 附加安全与隐私复核（每次发版必做）
 
-- [ ] 检查测试 Vault 下 `.obsidian/plugins/voice-mode/data.json`：**零明文 API Key / Token**。
+- [x] M0 阶段核验（发版前须复跑）：测试 Vault 下 `.obsidian/plugins/voice-mode/data.json` **零明文 API Key / Token**（S0-6 实测 `590 B` 纯配置）。
 - [ ] 检查 Developer Console 与日志输出：触发一次 401/500 错误响应，确认密钥与 `Authorization` 头已被完全脱敏。
-- [ ] 检查测试 Vault 根目录与 `.obsidian/`：确认**零模型二进制文件**写入 Vault，Obsidian Sync 状态正常。
+- [x] M0 阶段核验（发版前须复跑）：测试 Vault 根目录与 `.obsidian/` **零模型二进制文件**写入 Vault（S0-2 实测 `245.3 MB` 全部位于 `~/.cache/voice-mode/models/`）。
 
 ---
 

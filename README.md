@@ -38,16 +38,16 @@ This repository is structured as a three-package pnpm monorepo so core speech lo
 | `packages/voice-browser` (`@voice-mode/browser`) | Web Audio / Electron contracts: 16 kHz `AudioWorklet` resampler, native AEC3 runtime probe, playback queue, and worker protocol | Web / Audio standards only (no `obsidian`) |
 | `packages/obsidian-plugin` (`@voice-mode/obsidian-plugin`) | Thin Obsidian adapter bundled via `esbuild` into repo-root `main.js` (`< 5 MB` Obsidian Sync budget) | `obsidian` (`minAppVersion: 1.11.4`) |
 
-### Pre-Integration Local WASM Benchmarks (Reference Only)
+### Verified In-Obsidian Web Worker WASM Benchmarks (M0 Gate Passed · 2026-11-22)
 
-Measured on **Apple Silicon macOS, Node `v24.21.0`, `sherpa-onnx` WASM (14 MB), 5-second real Chinese speech clip, collected 2026-11-21**. **In-Obsidian desktop Web Worker RSS, latency, and long-session memory release (Installer 1.14.4 / Electron 43.7.5 and Installer 1.15.1 / Electron 43.8.9) are not yet verified** and are the mandatory M0 Spike gate before M1 development begins (see [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md)):
+Measured inside real **Obsidian `1.15.1` (`Electron 43.8.9` / `Chromium 150.0.7871.250`) on Apple M2 Max macOS `27.2.1` (32 GB RAM)** using `sherpa-onnx@2.0.2` WASM in an isolated MEMFS Web Worker over a 15-minute (60-utterance) continuous session (full report in [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md); M1 plugin integration in progress):
 
-| Engine / Model (WASM) | Cold Load | RTF | Peak RSS | Planned Role |
+| Engine / Model (WASM) | Cold Load | RTF | Resident RSS Delta | Role |
 | --- | ---: | ---: | ---: | --- |
-| `Silero VAD` | `27 ms` | — | Lightweight | Always-on endpoint / barge-in VAD |
-| `SenseVoice int8` | `696 ms` | `0.258` | `460 MB` | Default desktop single-model offline dictation (M1) |
-| `Zipformer2` | `1,939 ms` | `0.259` | `463 MB` | Optional streaming / Wave 3 `voice-daemon` |
-| `VITS` | `444 ms` | — | `581 MB` | Evaluated in M0 Spike for optional desktop offline TTS |
+| `Silero VAD` | `30 ms` | — | Included below | Always-on endpoint / barge-in VAD |
+| `SenseVoice int8` | `485 ms` | `0.215` (15m avg) | `+348.7 MB` steady (`+527.5 MB` peak, `512 MB` flat WASM heap) | Default desktop single-model offline dictation (M1) |
+| `Zipformer2` | `1,939 ms` (Node ref) | `0.259` | `463 MB` (Node ref) | Optional streaming / Wave 3 `voice-daemon` |
+| `VITS` (`vits-zh-ll`) | `391 ms` | `1.268` | `438 MB` (80-sentence steady) | Optional desktop offline TTS (M2; `#3960` keeps Kokoro on Wave 3 `voice-daemon`) |
 
 ---
 
@@ -94,8 +94,8 @@ pnpm run check:all
 
 ## Roadmap & Open-Source Voice Mode Matrix
 
-- **M0 (Next)**: 6 real-machine Spikes in Obsidian desktop (Installer 1.14.4 / Electron 43.7.5 & Installer 1.15.1 / Electron 43.8.9): Worker WASM memory/RTF, Vault-external cache, Copilot sidebar injection, API CORS matrix, `sherpa-onnx` WASM `#3960`/`#1939`, AEC3 & mobile probe.
-- **M1**: Offline WASM dictation (`Silero VAD` + `SenseVoice int8`), custom dictionary, editor/sidebar injection.
+- **M0 (Completed · 2026-11-22)**: 6 real-machine Spikes passed in Obsidian `1.15.1` (`Electron 43.8.9`) — Worker WASM 15-min RSS/RTF, Vault-external cache, Copilot `4.0.20` Lexical sidebar injection, API CORS & loopback SSE matrix, `sherpa-onnx@2.0.2` `#3960`/`#1939` verification, and native AEC3 / `SecretStorage` probes.
+- **M1 (In Progress)**: Offline WASM dictation (`Silero VAD` + `SenseVoice int8`), custom dictionary, editor/sidebar injection.
 - **M2**: Markdown/table-aware spoken read-aloud, captions overlay, AEC3 barge-in & `manual` fallback.
 - **M3**: BYOK voice Q&A & polish via `SecretStorage`, mobile degradation verification, 4 mandatory real-machine acoustic gates.
 - **M4**: Official `obsidianmd/obsidian-releases` Community Plugin Directory submission.
