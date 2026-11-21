@@ -22,6 +22,9 @@ const SENTENCE_CASE_BRANDS = [
   "SenseVoice",
   "Silero",
   "VITS",
+  "Kokoro",
+  "MiMo",
+  "CosyVoice2",
   "Whisper",
   "Copilot",
   "Voice Mode",
@@ -206,6 +209,27 @@ export default defineConfig([
         "warn",
         {
           packageDir: [".", "./packages/obsidian-plugin"],
+        },
+      ],
+    },
+  },
+
+  // Outbound transport adapter intentionally pairs primary fetch (redirect: "error" + ReadableStream)
+  // with Obsidian's requestUrl / desktop zero-redirect CORS fallback while keeping `app` and `localStorage` restricted.
+  {
+    files: ["packages/obsidian-plugin/src/obsidian-http.ts"],
+    rules: {
+      "no-restricted-globals": [
+        "error",
+        {
+          name: "app",
+          message:
+            "Avoid using the global app object. Instead use the reference provided by your plugin instance.",
+        },
+        {
+          name: "localStorage",
+          message:
+            "Prefer `App#saveLocalStorage` / `App#loadLocalStorage` functions to write / read localStorage data that's unique to a vault.",
         },
       ],
     },

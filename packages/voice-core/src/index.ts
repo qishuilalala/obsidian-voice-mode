@@ -134,3 +134,22 @@ export {
   type LlmChatRequest,
   type ResolvedLlmEndpoint,
 } from './llm-router.ts'
+
+export {
+  MAX_AUDIO_BYTES,
+  MAX_MIMO_JSON_BYTES,
+  MAX_TTS_ERROR_BYTES,
+  TtsProviderError,
+  sniffAudioMime,
+  decodeBase64Strict,
+  resolveSpeechEndpointUrl,
+  resolveOpenAiTtsConfig,
+  OpenAiCompatTtsEngine,
+  MimoTtsEngine,
+  type TtsErrorCode,
+  type ApiKeyProvider,
+  type ResolveOpenAiTtsConfigInput,
+  type ResolvedOpenAiTtsConfig,
+  type OpenAiCompatTtsOptions,
+  type MimoTtsOptions,
+} from './tts-engines.ts'

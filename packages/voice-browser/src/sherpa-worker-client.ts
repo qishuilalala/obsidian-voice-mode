@@ -414,7 +414,11 @@ export class SherpaWorkerClient {
 
   private ensureTargetLoaded(target: SherpaLoadableTarget): Promise<void> {
     this.assertNotDisposed()
-    if (this.isLoaded(target)) return Promise.resolve()
+    const conflictingTarget: SherpaLoadableTarget | null =
+      target === 'asr-offline' ? 'tts-vits' : target === 'tts-vits' ? 'asr-offline' : null
+    if (this.isLoaded(target) && (!conflictingTarget || !this.inFlightLoads.has(conflictingTarget))) {
+      return Promise.resolve()
+    }
 
     const existing = this.inFlightLoads.get(target)
     if (existing) return existing
@@ -453,6 +457,13 @@ export class SherpaWorkerClient {
           }
           if (gen === this.workerGeneration) {
             this.wasmInitialized = true
+            // Single-heavy-model mutual exclusion (ADR-0002): SenseVoice and VITS evict each other,
+            // while Silero VAD remains co-resident for live barge-in monitoring.
+            if (target === 'asr-offline') {
+              this.loadedTargets.delete('tts-vits')
+            } else if (target === 'tts-vits') {
+              this.loadedTargets.delete('asr-offline')
+            }
             this.loadedTargets.add(target)
           }
           resolve()

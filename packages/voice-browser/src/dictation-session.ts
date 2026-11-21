@@ -5,6 +5,7 @@
  */
 
 import { resolveEndpointPolicy, type EndpointPolicy } from '@voice-mode/core'
+import type { MediaTrackLike } from './aec-probe.ts'
 import { VOICE_CAPTURE_PROCESSOR_NAME, createWorkletModuleUrl } from './audio-worklet-source.ts'
 import { TARGET_SAMPLE_RATE } from './resample.ts'
 import type { SherpaWorkerClient } from './sherpa-worker-client.ts'
@@ -37,6 +38,10 @@ export interface AudioCaptureOptions {
 
 export interface AudioCaptureHandle {
   stop(): Promise<void>
+  /** Primary audio MediaStreamTrack when available (used by `probeTrackAec`). */
+  readonly track?: MediaTrackLike | null
+  /** Supported media track constraints reported by `navigator.mediaDevices.getSupportedConstraints()`. */
+  readonly supportedConstraints?: { echoCancellation?: boolean }
 }
 
 export type AudioCaptureFactory = (options: AudioCaptureOptions) => Promise<AudioCaptureHandle>
@@ -84,7 +89,15 @@ export async function createBrowserMicCapture(
     audioConstraints.deviceId = { exact: options.deviceId }
   }
 
+  const supportedConstraints =
+    typeof navigator.mediaDevices.getSupportedConstraints === 'function'
+      ? navigator.mediaDevices.getSupportedConstraints()
+      : undefined
   const stream = await navigator.mediaDevices.getUserMedia({ audio: audioConstraints })
+  const primaryTrack: MediaTrackLike | null =
+    (typeof stream.getAudioTracks === 'function' ? stream.getAudioTracks()[0] : undefined) ??
+    stream.getTracks()[0] ??
+    null
   let workletHandle: { url: string; revoke: () => void } | null = null
   let audioContext: AudioContext | null = null
   let sourceNode: MediaStreamAudioSourceNode | null = null
@@ -189,7 +202,11 @@ export async function createBrowserMicCapture(
     workletNode.connect(sinkGain)
     sinkGain.connect(audioContext.destination)
 
-    return { stop: teardown }
+    return {
+      stop: teardown,
+      track: primaryTrack,
+      supportedConstraints,
+    }
   } catch (err) {
     await teardown()
     throw err

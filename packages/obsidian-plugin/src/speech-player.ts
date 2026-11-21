@@ -44,6 +44,32 @@ interface SpeechRuntimeWindow extends Window {
   Audio: typeof Audio;
 }
 
+interface ActiveSystemUtterance {
+  readonly win: SpeechRuntimeWindow;
+  pauseWatchdog(): void;
+  resumeWatchdog(): void;
+}
+
+interface ActiveBinaryAudio {
+  readonly win: SpeechRuntimeWindow;
+  readonly audio: HTMLAudioElement;
+  readonly objectUrl: string;
+  pausedBySink: boolean;
+  fail(err: unknown): void;
+}
+
+function isAbortDomError(err: unknown): boolean {
+  if (err instanceof Error && err.name === "AbortError") {
+    return true;
+  }
+  return (
+    typeof err === "object" &&
+    err !== null &&
+    "name" in err &&
+    (err as { name?: unknown }).name === "AbortError"
+  );
+}
+
 /**
  * Resolve available system `SpeechSynthesisVoice` entries safely across desktop and mobile WebViews.
  */
@@ -120,9 +146,8 @@ export class ObsidianAudioSink implements AudioSink {
   private readonly watchdogOverrideMs?: number;
 
   private activeSynthWindow: SpeechRuntimeWindow | null = null;
-  private activeAudioElement: HTMLAudioElement | null = null;
-  private activeObjectUrl: string | null = null;
-  private activeAudioWindow: SpeechRuntimeWindow | null = null;
+  private activeSystemSpeech: ActiveSystemUtterance | null = null;
+  private activeBinaryAudio: ActiveBinaryAudio | null = null;
 
   constructor(
     getConfig: () => SpeechPlayerConfig,
@@ -145,7 +170,64 @@ export class ObsidianAudioSink implements AudioSink {
     return this.playBinaryAudio(payload, signal);
   }
 
+  pause(): void {
+    if (this.activeSystemSpeech) {
+      this.activeSystemSpeech.pauseWatchdog();
+      try {
+        this.activeSystemSpeech.win.speechSynthesis?.pause?.();
+      } catch {
+        // Ignore platform synthesis pause errors.
+      }
+    } else if (this.activeSynthWindow && typeof this.activeSynthWindow.speechSynthesis !== "undefined") {
+      try {
+        this.activeSynthWindow.speechSynthesis.pause?.();
+      } catch {
+        // Ignore platform synthesis pause errors.
+      }
+    }
+
+    if (this.activeBinaryAudio) {
+      this.activeBinaryAudio.pausedBySink = true;
+      try {
+        this.activeBinaryAudio.audio.pause();
+      } catch {
+        // Ignore HTMLAudioElement pause errors.
+      }
+    }
+  }
+
+  resume(): void {
+    if (this.activeSystemSpeech) {
+      this.activeSystemSpeech.resumeWatchdog();
+      try {
+        this.activeSystemSpeech.win.speechSynthesis?.resume?.();
+      } catch {
+        // Ignore platform synthesis resume errors.
+      }
+    } else if (this.activeSynthWindow && typeof this.activeSynthWindow.speechSynthesis !== "undefined") {
+      try {
+        this.activeSynthWindow.speechSynthesis.resume?.();
+      } catch {
+        // Ignore platform synthesis resume errors.
+      }
+    }
+
+    if (this.activeBinaryAudio) {
+      const active = this.activeBinaryAudio;
+      active.pausedBySink = false;
+      void active.audio.play().catch((err: unknown) => {
+        if (active.pausedBySink && isAbortDomError(err)) {
+          return;
+        }
+        if (this.activeBinaryAudio === active) {
+          active.fail(err);
+        }
+      });
+    }
+  }
+
   stop(): void {
+    this.activeSystemSpeech = null;
     const synthWin = this.activeSynthWindow ?? this.getWindow();
     this.activeSynthWindow = null;
     if (typeof synthWin.speechSynthesis !== "undefined") {
@@ -176,7 +258,53 @@ export class ObsidianAudioSink implements AudioSink {
 
       let settled = false;
       let watchdogTimer: number | null = null;
+      let remainingWatchdogMs = watchdogMs;
+      let watchdogArmedAt = 0;
+      let watchdogPaused = false;
       this.activeSynthWindow = win;
+
+      const armWatchdog = (): void => {
+        if (settled || watchdogPaused) {
+          return;
+        }
+        if (watchdogTimer !== null) {
+          win.clearTimeout(watchdogTimer);
+        }
+        watchdogArmedAt = Date.now();
+        watchdogTimer = win.setTimeout(() => {
+          watchdogTimer = null;
+          try {
+            win.speechSynthesis.cancel();
+          } catch {
+            // Ignore cancel errors on watchdog expiry.
+          }
+          finish(new Error("Speech synthesis timed out without finishing."));
+        }, Math.max(1, remainingWatchdogMs));
+      };
+
+      const activeHandle: ActiveSystemUtterance = {
+        win,
+        pauseWatchdog: () => {
+          if (settled || watchdogPaused) {
+            return;
+          }
+          watchdogPaused = true;
+          if (watchdogTimer !== null) {
+            win.clearTimeout(watchdogTimer);
+            watchdogTimer = null;
+          }
+          const elapsed = Math.max(0, Date.now() - watchdogArmedAt);
+          remainingWatchdogMs = Math.max(1, remainingWatchdogMs - elapsed);
+        },
+        resumeWatchdog: () => {
+          if (settled || !watchdogPaused) {
+            return;
+          }
+          watchdogPaused = false;
+          armWatchdog();
+        },
+      };
+      this.activeSystemSpeech = activeHandle;
 
       const finish = (err?: Error): void => {
         if (settled) {
@@ -188,6 +316,9 @@ export class ObsidianAudioSink implements AudioSink {
           watchdogTimer = null;
         }
         signal.removeEventListener("abort", onAbort);
+        if (this.activeSystemSpeech === activeHandle) {
+          this.activeSystemSpeech = null;
+        }
         if (this.activeSynthWindow === win) {
           this.activeSynthWindow = null;
         }
@@ -232,14 +363,7 @@ export class ObsidianAudioSink implements AudioSink {
           finish(new Error(`Speech synthesis error: ${event.error}`));
         };
 
-        watchdogTimer = win.setTimeout(() => {
-          try {
-            win.speechSynthesis.cancel();
-          } catch {
-            // Ignore cancel errors on watchdog expiry.
-          }
-          finish(new Error("Speech synthesis timed out without finishing."));
-        }, watchdogMs);
+        armWatchdog();
 
         if (win.speechSynthesis.paused) {
           win.speechSynthesis.resume();
@@ -260,24 +384,26 @@ export class ObsidianAudioSink implements AudioSink {
     const audio = new win.Audio(objectUrl);
 
     this.stopBinaryAudio();
-    this.activeAudioElement = audio;
-    this.activeObjectUrl = objectUrl;
-    this.activeAudioWindow = win;
 
     return new Promise<void>((resolve, reject) => {
       let settled = false;
+      const activeHandle: ActiveBinaryAudio = {
+        win,
+        audio,
+        objectUrl,
+        pausedBySink: false,
+        fail: (err: unknown) => {
+          finish(err instanceof Error ? err : new Error(String(err)));
+        },
+      };
+      this.activeBinaryAudio = activeHandle;
+
       const cleanup = (): void => {
         signal.removeEventListener("abort", onAbort);
         audio.onended = null;
         audio.onerror = null;
-        if (this.activeAudioElement === audio) {
-          this.activeAudioElement = null;
-        }
-        if (this.activeObjectUrl === objectUrl) {
-          this.activeObjectUrl = null;
-        }
-        if (this.activeAudioWindow === win) {
-          this.activeAudioWindow = null;
+        if (this.activeBinaryAudio === activeHandle) {
+          this.activeBinaryAudio = null;
         }
         win.URL.revokeObjectURL(objectUrl);
       };
@@ -296,6 +422,7 @@ export class ObsidianAudioSink implements AudioSink {
       };
 
       const onAbort = (): void => {
+        activeHandle.pausedBySink = false;
         audio.pause();
         audio.currentTime = 0;
         finish();
@@ -310,27 +437,28 @@ export class ObsidianAudioSink implements AudioSink {
           finish();
           return;
         }
+        if (activeHandle.pausedBySink && isAbortDomError(err)) {
+          return;
+        }
         finish(err instanceof Error ? err : new Error(String(err)));
       });
     });
   }
 
   private stopBinaryAudio(): void {
-    const win = this.activeAudioWindow;
-    if (this.activeAudioElement) {
-      try {
-        this.activeAudioElement.pause();
-        this.activeAudioElement.currentTime = 0;
-      } catch {
-        // Ignore teardown audio pause errors.
-      }
-      this.activeAudioElement = null;
+    const active = this.activeBinaryAudio;
+    this.activeBinaryAudio = null;
+    if (!active) {
+      return;
     }
-    if (this.activeObjectUrl && win) {
-      win.URL.revokeObjectURL(this.activeObjectUrl);
+    active.pausedBySink = false;
+    try {
+      active.audio.pause();
+      active.audio.currentTime = 0;
+    } catch {
+      // Ignore teardown audio pause errors.
     }
-    this.activeObjectUrl = null;
-    this.activeAudioWindow = null;
+    active.win.URL.revokeObjectURL(active.objectUrl);
   }
 }
 
@@ -378,6 +506,14 @@ export class SpeechPlayer {
     return this.queue.state === "playing";
   }
 
+  get isPaused(): boolean {
+    return this.queue.state === "paused";
+  }
+
+  get isActive(): boolean {
+    return this.queue.state === "playing" || this.queue.state === "paused";
+  }
+
   updateConfig(partial: Partial<SpeechPlayerConfig>): void {
     const prevEngine = this.config.engine;
     this.config = {
@@ -420,6 +556,28 @@ export class SpeechPlayer {
       }
     }
     return queued;
+  }
+
+  pause(): boolean {
+    return this.queue.pause();
+  }
+
+  resume(): boolean {
+    return this.queue.resume();
+  }
+
+  togglePause(): boolean {
+    if (this.queue.state === "playing") {
+      return this.pause();
+    }
+    if (this.queue.state === "paused") {
+      return this.resume();
+    }
+    return false;
+  }
+
+  skipCurrent(): boolean {
+    return this.queue.skipCurrent();
   }
 
   waitUntilDrained(): Promise<void> {

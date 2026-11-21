@@ -6,6 +6,13 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added (M2 Spoken Read-Aloud, Subtitle Controls, Multi-Engine TTS & Native AEC3 Barge-In — 2026-11-22)
+
+- **Multi-engine TTS routing & zero-redirect CORS fallback**:
+  - `@voice-mode/core`: `sniffAudioMime` (magic-byte detection rejecting HTML/JSON 200 responses), pure-JS `decodeBase64Strict`, `OpenAiCompatTtsEngine` (`TTS_OPENAI_PRESETS` + loopback self-hosted `/audio/speech`, `16 MiB` cap, `redirect: "error"`), and `MimoTtsEngine` (`api-key` header isolation, natural-language speed prompt, `24 MiB` JSON cap).
+  - `@voice-mode/browser`: `VitsWasmTtsEngine` (`5` speakers, single-heavy-model mutual exclusion with `SenseVoice int8`), `PlaybackQueue` `pause()` / `resume()` / `skipCurrent()`, and `AecBargeInMonitor` (`autoGainControl: false`, automatic `manual` lock on `system` TTS or missing native AEC).
+  - `@voice-mode/obsidian-plugin` & `styles.css`: `createObsidianFetchWithCorsFallback` (`fetch` -> desktop zero-redirect Node stream -> mobile `requestUrl`), optional `vits-zh-ll` external cache download/verify UI, dedicated lightweight `bargeInWorkerClient` (`180 s` continuous speaker playback with `0` self-interrupts, `66–370 ms` measured voice barge-in), per-preset TTS `SecretStorage` isolation, floating subtitle size/width presets (`15.91:1` light / `12.19:1` dark WCAG contrast), interactive `Pause`/`Resume`/`Next`/`Stop` buttons, and automatic stop on note switch (`main.js` = `213.11 KB`, `115` unit tests).
+
 ### Added (M1 Desktop Offline WASM Dictation — 2026-11-22)
 
 - **Desktop 100% offline WASM dictation (`SenseVoice WASM`)**:
@@ -27,7 +34,6 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned (see `docs/plan/master-plan.md`)
 
-- **M2**: Spoken Markdown & pipe-table read-aloud, floating captions size/width presets, optional `vits-wasm` / BYOK TTS, and AEC3 barge-in with `manual` fallback.
 - **M3**: Optional BYOK voice Q&A / transcript polish via `SecretStorage`, mobile graceful degradation verification, and 4 mandatory real-machine acoustic acceptance gates.
 
 ## [0.1.0] - 2026-11-21

@@ -6,10 +6,14 @@
  * TTS audio from looping back into ASR as phantom user utterances.
  */
 
+export type BargeInMode = 'detect' | 'auto' | 'manual'
+
 export type BargeInPolicy = 'auto' | 'manual'
 
 export type BargeInDowngradeReason =
   | 'ok'
+  | 'user-selected-manual'
+  | 'system-tts-bypasses-aec'
   | 'edge-aec-unreliable'
   | 'safari-aec-unreliable'
   | 'mobile-aec-unreliable'
@@ -27,10 +31,12 @@ export interface AecProbeResult {
 }
 
 export interface BargeInPolicyInput {
+  requestedMode?: BargeInMode
+  usesSystemTts?: boolean
   isEdge?: boolean
   isSafari?: boolean
   isMobile?: boolean
-  nativeAecActive: boolean
+  nativeAecActive?: boolean
 }
 
 export interface BargeInPolicyDecision {
@@ -71,9 +77,33 @@ export function probeTrackAec(
 
 /**
  * Determine whether hands-free barge-in (`auto`) is safe or must downgrade to `manual`.
- * Edge, Safari, Mobile, and environments without verified native AEC always downgrade to `manual`.
+ *
+ * - `requestedMode === 'manual'` always locks to `manual` (`'user-selected-manual'`).
+ * - `usesSystemTts === true` (`window.speechSynthesis` OS daemon bypasses Chromium's AEC3 reference
+ *   mixer) ALWAYS locks to `manual` (`'system-tts-bypasses-aec'`), even when `requestedMode === 'auto'`.
+ * - `isMobile` always downgrades to `manual` (`'mobile-aec-unreliable'`).
+ * - `requestedMode === 'auto'` allows explicit user override on desktop non-system TTS; `'detect'`
+ *   (default) additionally enforces Edge, Safari, and verified `nativeAecActive` checks.
  */
 export function resolveBargeInPolicy(input: BargeInPolicyInput): BargeInPolicyDecision {
+  const mode: BargeInMode = input.requestedMode ?? 'detect'
+
+  if (mode === 'manual') {
+    return {
+      policy: 'manual',
+      reason: 'user-selected-manual',
+      allowHandsFreeBargeIn: false,
+    }
+  }
+
+  if (input.usesSystemTts === true) {
+    return {
+      policy: 'manual',
+      reason: 'system-tts-bypasses-aec',
+      allowHandsFreeBargeIn: false,
+    }
+  }
+
   if (input.isMobile) {
     return {
       policy: 'manual',
@@ -81,6 +111,15 @@ export function resolveBargeInPolicy(input: BargeInPolicyInput): BargeInPolicyDe
       allowHandsFreeBargeIn: false,
     }
   }
+
+  if (mode === 'auto') {
+    return {
+      policy: 'auto',
+      reason: 'ok',
+      allowHandsFreeBargeIn: true,
+    }
+  }
+
   if (input.isEdge) {
     return {
       policy: 'manual',
@@ -95,7 +134,7 @@ export function resolveBargeInPolicy(input: BargeInPolicyInput): BargeInPolicyDe
       allowHandsFreeBargeIn: false,
     }
   }
-  if (!input.nativeAecActive) {
+  if (input.nativeAecActive !== true) {
     return {
       policy: 'manual',
       reason: 'native-aec-inactive',

@@ -291,12 +291,18 @@ const SHERPA_WORKER_HANDLER_BODY = `
         throw makeWorkerError("model_load_failed", "Missing tokens.txt in model:load files");
       }
 
+      // Single-heavy-model guard (ADR-0002): evict VITS before mounting SenseVoice so
+      // SenseVoice (239 MB) and VITS (121 MB) never stay co-resident in WASM heap.
+      // Lightweight Silero VAD (1.8 MB) remains untouched.
+      freeInstance(offlineTts);
+      offlineTts = null;
+      freeInstance(offlineAsr);
+      offlineAsr = null;
+
       const modelPath = "/models/sense/model.int8.onnx";
       const tokensPath = "/models/sense/tokens.txt";
       mountZeroCopy(FS, modelPath, onnxFile.buffer);
       mountZeroCopy(FS, tokensPath, tokensFile.buffer);
-      freeInstance(offlineAsr);
-      offlineAsr = null;
 
       try {
         offlineAsr = new SherpaAsr.OfflineRecognizer(
@@ -340,14 +346,28 @@ const SHERPA_WORKER_HANDLER_BODY = `
       if (modelFiles.length === 0) {
         throw makeWorkerError("model_load_failed", "Missing VITS files in model:load request");
       }
+      const normalizedEntries = modelFiles.map((file) => ({
+        file,
+        rel: normalizeRelName(file.name),
+      }));
+
+      // Single-heavy-model guard (ADR-0002): evict SenseVoice before mounting VITS so
+      // SenseVoice (239 MB) and VITS (121 MB) never stay co-resident in WASM heap.
+      // Lightweight Silero VAD (1.8 MB) remains untouched.
+      freeInstance(offlineAsr);
+      offlineAsr = null;
+      freeInstance(offlineTts);
+      offlineTts = null;
+
       let modelPath = typeof config.model === "string" ? config.model : "";
       let lexiconPath = typeof config.lexicon === "string" ? config.lexicon : "";
       let tokensPath = typeof config.tokens === "string" ? config.tokens : "";
       const fstPaths = [];
 
-      for (let i = 0; i < modelFiles.length; i++) {
-        const file = modelFiles[i];
-        const rel = normalizeRelName(file.name);
+      for (let i = 0; i < normalizedEntries.length; i++) {
+        const entry = normalizedEntries[i];
+        const file = entry.file;
+        const rel = entry.rel;
         const lower = rel.toLowerCase();
         const isOnnx = lower.endsWith(".onnx");
         const targetPath =
@@ -369,9 +389,6 @@ const SHERPA_WORKER_HANDLER_BODY = `
       }
       const ruleFsts =
         typeof config.ruleFsts === "string" ? config.ruleFsts : fstPaths.join(",");
-
-      freeInstance(offlineTts);
-      offlineTts = null;
 
       try {
         offlineTts = SherpaTts.createOfflineTts(wasmMod, {

@@ -3,15 +3,23 @@ import {
   ALLOWED_WASM_HOSTNAMES,
   LLM_PRESETS,
   LLM_PRESET_IDS,
+  MIMO_DEFAULT_BASE_URL,
+  MIMO_DEFAULT_MODEL,
+  MIMO_DEFAULT_VOICE,
+  MIMO_VOICES,
   MODEL_BUNDLES,
   MODEL_HOST_FALLBACK,
   MODEL_HOST_PRIMARY,
   REPLACEMENTS_MAX_PAYLOAD_BYTES,
   SHERPA_WASM_RUNTIME_202,
+  TTS_OPENAI_PRESETS,
+  VITS_SPEAKERS,
   asLlmPresetId,
   asTtsEngineKind,
   redactSecrets,
   replacementsPayloadBytes,
+  resolveTtsOpenAiPreset,
+  ttsPresetRequiresKey,
   validateEndpointUrl,
   validateLoopbackUrl,
   validateModelHost,
@@ -20,7 +28,12 @@ import {
   type MarkdownTablePolicy,
   type TtsEngineKind,
 } from "@voice-mode/core";
-import { resolveBargeInPolicy, type DictationMode } from "@voice-mode/browser";
+import {
+  resolveBargeInPolicy,
+  type BargeInMode,
+  type BargeInPolicyDecision,
+  type DictationMode,
+} from "@voice-mode/browser";
 import {
   Notice,
   Platform,
@@ -49,6 +62,8 @@ import {
   setLlmSecretId,
   setTtsSecretId,
   toSecretId,
+  type SubtitleFontSize,
+  type SubtitleWidth,
   type VoiceModeSettings,
 } from "./settings.ts";
 
@@ -62,9 +77,13 @@ export interface VoiceModePluginHost {
   startModelDownload?(
     onProgress?: (progress: ModelDownloadProgress) => void,
   ): Promise<DictationStackStatus>;
+  startVitsModelDownload?(
+    onProgress?: (progress: ModelDownloadProgress) => void,
+  ): Promise<DictationStackStatus>;
   cancelModelDownload?(): void;
   clearCachedModels?(): Promise<void>;
   openModelCacheFolder?(): Promise<void>;
+  getBargeInDecision?(): BargeInPolicyDecision | null;
 }
 
 const ASR_ENGINE_LABELS: Readonly<Record<ObsidianAsrEngine, string>> = {
@@ -87,6 +106,24 @@ const TTS_ENGINE_LABELS: Readonly<Record<TtsEngineKind, string>> = {
   "kokoro-daemon": "Kokoro daemon (desktop local)",
   "openai-compat": "OpenAI-compatible endpoint (BYOK)",
   mimo: "MiMo cloud TTS (BYOK)",
+};
+
+const SUBTITLE_FONT_SIZE_LABELS: Readonly<Record<SubtitleFontSize, string>> = {
+  small: "Small",
+  medium: "Medium",
+  large: "Large",
+};
+
+const SUBTITLE_WIDTH_LABELS: Readonly<Record<SubtitleWidth, string>> = {
+  narrow: "Narrow (420 px)",
+  medium: "Medium (640 px)",
+  wide: "Wide (860 px)",
+};
+
+const BARGE_IN_MODE_LABELS: Readonly<Record<BargeInMode, string>> = {
+  detect: "Detect native AEC automatically",
+  auto: "Force hands-free barge-in (desktop non-system TTS)",
+  manual: "Manual stop only",
 };
 
 const SECRET_STORAGE_UPGRADE_NOTICE =
@@ -113,6 +150,25 @@ function buildOptionsMap<K extends string>(
   return options;
 }
 
+function buildTtsPresetOptions(): Record<string, string> {
+  const options: Record<string, string> = {};
+  for (const [presetId, preset] of Object.entries(TTS_OPENAI_PRESETS)) {
+    options[presetId] = preset.label;
+  }
+  options.custom = "Custom OpenAI-compatible endpoint";
+  return options;
+}
+
+function buildVitsSpeakerOptions(): Record<string, string> {
+  const options: Record<string, string> = {
+    "": "Default (suyingxue — 0)",
+  };
+  for (const speaker of VITS_SPEAKERS) {
+    options[speaker.name] = `${speaker.en} (${speaker.name} — ${speaker.sid})`;
+  }
+  return options;
+}
+
 function formatMegabytes(bytes: number): string {
   return `${(bytes / 1_048_576).toFixed(1)} MB`;
 }
@@ -132,6 +188,61 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     this.host = plugin;
   }
 
+  private resolveEffectiveTts(): TtsEngineKind {
+    const { settings, capabilities } = this.host;
+    return capabilities.allowedTtsEngines.includes(settings.ttsEngine)
+      ? settings.ttsEngine
+      : capabilities.defaultTtsEngine;
+  }
+
+  private describeTtsVoiceMeta(
+    engine: TtsEngineKind,
+    presetId: string,
+  ): { desc: string; placeholder: string } {
+    if (engine === "vits-wasm") {
+      return {
+        desc: `Optional speaker name or numeric ID (${VITS_SPEAKERS.map((s) => `${s.name}/${s.sid}`).join(", ")}).`,
+        placeholder: "suyingxue",
+      };
+    }
+    if (engine === "openai-compat") {
+      const preset = resolveTtsOpenAiPreset(presetId);
+      return {
+        desc: preset
+          ? `Optional voice override for ${preset.label} (default: ${preset.voice}).`
+          : "Optional voice identifier required by your endpoint.",
+        placeholder: preset?.voice || "alloy",
+      };
+    }
+    if (engine === "mimo") {
+      return {
+        desc: `Optional MiMo voice identifier (available: ${MIMO_VOICES.join(", ")}).`,
+        placeholder: MIMO_DEFAULT_VOICE,
+      };
+    }
+    return {
+      desc: "Optional voice name or provider speaker ID. Leave empty to use the system default.",
+      placeholder: "Default system voice",
+    };
+  }
+
+  private describeTtsSecretDesc(engine: TtsEngineKind, presetId: string): string {
+    if (engine === "openai-compat") {
+      const preset = resolveTtsOpenAiPreset(presetId);
+      const suggested = preset ? toSecretId("tts", preset.id) : toSecretId("tts", "custom");
+      const label = preset ? preset.label : "Custom OpenAI-compatible endpoint";
+      const loopbackHint =
+        preset && !ttsPresetRequiresKey(preset.id)
+          ? " Optional for local loopback servers without authentication."
+          : "";
+      return `Select a secret from Obsidian secret storage for ${label} (suggested ID: ${suggested}).${loopbackHint}`;
+    }
+    if (engine === "mimo") {
+      return `Select a secret from Obsidian secret storage for MiMo cloud TTS (suggested ID: ${toSecretId("tts", "mimo")}).`;
+    }
+    return `Select a secret from Obsidian secret storage for ${TTS_ENGINE_LABELS[engine]} (suggested ID: ${toSecretId("tts", engine)}).`;
+  }
+
   /**
    * Declarative setting definitions for Obsidian 1.13+ (enables native Settings Search).
    * Older hosts (1.11.4–1.12.x) render identically through `display()`.
@@ -144,6 +255,24 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       ["toggle", "single", "push-to-talk"] as const,
       DICTATION_MODE_LABELS,
     );
+    const subtitleSizeOptions = buildOptionsMap(
+      ["small", "medium", "large"] as const,
+      SUBTITLE_FONT_SIZE_LABELS,
+    );
+    const subtitleWidthOptions = buildOptionsMap(
+      ["narrow", "medium", "wide"] as const,
+      SUBTITLE_WIDTH_LABELS,
+    );
+    const bargeInModeOptions = buildOptionsMap(
+      ["detect", "auto", "manual"] as const,
+      BARGE_IN_MODE_LABELS,
+    );
+    const ttsPresetOptions = buildTtsPresetOptions();
+    const vitsSpeakerOptions = buildVitsSpeakerOptions();
+    const effectiveTts = this.resolveEffectiveTts();
+    const activeTtsPreset = resolveTtsOpenAiPreset(settings.ttsPresetId);
+    const voiceMeta = this.describeTtsVoiceMeta(effectiveTts, settings.ttsPresetId);
+
     const presetOptions: Record<string, string> = {};
     for (const presetId of LLM_PRESET_IDS) {
       presetOptions[presetId] = LLM_PRESETS[presetId].label;
@@ -214,8 +343,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             name: "Transcription API key",
             desc: `Select a secret stored in Obsidian secret storage (suggested ID: ${toSecretId("asr", "openai-compat")}).`,
             render: (setting) => {
-              this.attachSecretControl(setting, settings.asrApiKeySecretId, async (candidate) => {
-                settings.asrApiKeySecretId = candidate;
+              const liveSettings = this.host.settings;
+              this.attachSecretControl(setting, liveSettings.asrApiKeySecretId, async (candidate) => {
+                this.host.settings.asrApiKeySecretId = candidate;
                 await this.host.saveSettings();
               });
             },
@@ -246,12 +376,87 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
+            name: "TTS preset",
+            desc: "Choose a cloud or local loopback OpenAI-compatible speech preset, or select custom endpoint.",
+            visible: () => this.resolveEffectiveTts() === "openai-compat",
+            control: {
+              type: "dropdown",
+              key: "ttsPresetId",
+              options: ttsPresetOptions,
+            },
+          },
+          {
+            name: "VITS speaker",
+            desc: "Select one of the built-in VITS speakers or leave on default.",
+            visible: () => this.resolveEffectiveTts() === "vits-wasm",
+            control: {
+              type: "dropdown",
+              key: "vitsSpeaker",
+              options: vitsSpeakerOptions,
+            },
+          },
+          {
             name: "Preferred voice name",
-            desc: "Optional voice name or provider speaker ID. Leave empty to use the system default.",
+            desc: voiceMeta.desc,
             control: {
               type: "text",
               key: "ttsVoice",
-              placeholder: "Default system voice",
+              placeholder: voiceMeta.placeholder,
+            },
+          },
+          {
+            name: "TTS model override",
+            desc: "Leave empty to use the default speech model for the active provider or preset.",
+            visible: () => {
+              const e = this.resolveEffectiveTts();
+              return e === "openai-compat" || e === "mimo";
+            },
+            control: {
+              type: "text",
+              key: "ttsModel",
+              placeholder:
+                effectiveTts === "mimo"
+                  ? MIMO_DEFAULT_MODEL
+                  : activeTtsPreset?.model || "tts-1",
+            },
+          },
+          {
+            name: "TTS endpoint URL",
+            desc: "Optional HTTPS or loopback HTTP speech endpoint URL. Plaintext HTTP is blocked for remote hosts.",
+            visible: () => {
+              const e = this.resolveEffectiveTts();
+              return e === "openai-compat" || e === "mimo";
+            },
+            control: {
+              type: "text",
+              key: "ttsEndpointUrl",
+              placeholder:
+                effectiveTts === "mimo"
+                  ? MIMO_DEFAULT_BASE_URL
+                  : activeTtsPreset?.baseUrl || "https://api.openai.com/v1",
+              validate: (value) => this.validateOptionalEndpointMessage(value),
+            },
+          },
+          {
+            name: "Speech API key",
+            desc: this.describeTtsSecretDesc(effectiveTts, settings.ttsPresetId),
+            visible: () => {
+              const e = this.resolveEffectiveTts();
+              return e === "openai-compat" || e === "mimo";
+            },
+            render: (setting) => {
+              const liveSettings = this.host.settings;
+              const currentEngine = this.resolveEffectiveTts();
+              const presetScope =
+                currentEngine === "openai-compat" ? liveSettings.ttsPresetId : undefined;
+              this.attachSecretControl(
+                setting,
+                getTtsSecretId(liveSettings, currentEngine, presetScope),
+                async (candidate) => {
+                  setTtsSecretId(this.host.settings, currentEngine, candidate, presetScope);
+                  await this.host.saveSettings();
+                },
+              );
             },
           },
           {
@@ -278,25 +483,38 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Speech API key",
-            desc: (() => {
-              const effectiveTtsEngine = capabilities.allowedTtsEngines.includes(settings.ttsEngine)
-                ? settings.ttsEngine
-                : capabilities.defaultTtsEngine;
-              return `Select a secret from Obsidian secret storage for ${TTS_ENGINE_LABELS[effectiveTtsEngine]} (suggested ID: ${toSecretId("tts", effectiveTtsEngine)}).`;
-            })(),
-            render: (setting) => {
-              const currentEngine = capabilities.allowedTtsEngines.includes(settings.ttsEngine)
-                ? settings.ttsEngine
-                : capabilities.defaultTtsEngine;
-              this.attachSecretControl(
-                setting,
-                getTtsSecretId(settings, currentEngine),
-                async (candidate) => {
-                  setTtsSecretId(settings, currentEngine, candidate);
-                  await this.host.saveSettings();
-                },
-              );
+            name: "Subtitle text size",
+            desc: "Choose the font size for the live transcript and read-aloud subtitle card.",
+            control: {
+              type: "dropdown",
+              key: "subtitleFontSize",
+              options: subtitleSizeOptions,
+            },
+          },
+          {
+            name: "Subtitle card width",
+            desc: "Choose the maximum width of the floating subtitle card.",
+            control: {
+              type: "dropdown",
+              key: "subtitleWidth",
+              options: subtitleWidthOptions,
+            },
+          },
+          {
+            name: "Stop read-aloud when switching notes",
+            desc: "Immediately cancel active read-aloud when opening or switching to another note.",
+            control: {
+              type: "toggle",
+              key: "stopReadAloudOnNoteSwitch",
+            },
+          },
+          {
+            name: "Barge-in mode",
+            desc: "Control hands-free voice interruption during non-system read-aloud. System speech always uses manual stop to avoid speaker echo loops.",
+            control: {
+              type: "dropdown",
+              key: "bargeInMode",
+              options: bargeInModeOptions,
             },
           },
         ],
@@ -326,12 +544,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             name: "Provider API key",
             desc: `Select a secret stored in Obsidian secret storage for ${activePreset.label} (suggested ID: ${toSecretId("llm", settings.llmPresetId)}).`,
             render: (setting) => {
-              const currentPreset = settings.llmPresetId;
+              const liveSettings = this.host.settings;
+              const currentPreset = liveSettings.llmPresetId;
               this.attachSecretControl(
                 setting,
-                getLlmSecretId(settings, currentPreset),
+                getLlmSecretId(liveSettings, currentPreset),
                 async (candidate) => {
-                  setLlmSecretId(settings, currentPreset, candidate);
+                  setLlmSecretId(this.host.settings, currentPreset, candidate);
                   await this.host.saveSettings();
                 },
               );
@@ -460,12 +679,28 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         return capabilities.allowedTtsEngines.includes(settings.ttsEngine)
           ? settings.ttsEngine
           : capabilities.defaultTtsEngine;
+      case "ttsPresetId":
+        return settings.ttsPresetId;
+      case "vitsSpeaker":
+        return VITS_SPEAKERS.some((s) => s.name === settings.ttsVoice) ? settings.ttsVoice : "";
       case "ttsVoice":
         return settings.ttsVoice;
+      case "ttsModel":
+        return settings.ttsModel;
+      case "ttsEndpointUrl":
+        return settings.ttsEndpointUrl;
       case "speechRate":
         return settings.speechRate;
       case "markdownTablePolicy":
         return settings.markdownTablePolicy;
+      case "subtitleFontSize":
+        return settings.subtitleFontSize;
+      case "subtitleWidth":
+        return settings.subtitleWidth;
+      case "stopReadAloudOnNoteSwitch":
+        return settings.stopReadAloudOnNoteSwitch;
+      case "bargeInMode":
+        return settings.bargeInMode;
       case "enableVoiceQa":
         return settings.enableVoiceQa;
       case "llmPresetId":
@@ -534,9 +769,38 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           shouldRefresh = true;
         }
         break;
+      case "ttsPresetId":
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (trimmed === "custom" || Object.hasOwn(TTS_OPENAI_PRESETS, trimmed)) {
+            settings.ttsPresetId = trimmed;
+            shouldRefresh = true;
+          }
+        }
+        break;
+      case "vitsSpeaker":
+        if (typeof value === "string") {
+          settings.ttsVoice = value.trim();
+          shouldRefresh = true;
+        }
+        break;
       case "ttsVoice":
         if (typeof value === "string") {
           settings.ttsVoice = value.trim();
+        }
+        break;
+      case "ttsModel":
+        if (typeof value === "string") {
+          settings.ttsModel = value.trim();
+        }
+        break;
+      case "ttsEndpointUrl":
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (trimmed && this.validateOptionalEndpointMessage(trimmed)) {
+            return;
+          }
+          settings.ttsEndpointUrl = trimmed;
         }
         break;
       case "speechRate":
@@ -547,6 +811,27 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       case "markdownTablePolicy":
         if (value === "skip" || value === "placeholder") {
           settings.markdownTablePolicy = value;
+        }
+        break;
+      case "subtitleFontSize":
+        if (value === "small" || value === "medium" || value === "large") {
+          settings.subtitleFontSize = value;
+        }
+        break;
+      case "subtitleWidth":
+        if (value === "narrow" || value === "medium" || value === "wide") {
+          settings.subtitleWidth = value;
+        }
+        break;
+      case "stopReadAloudOnNoteSwitch":
+        if (typeof value === "boolean") {
+          settings.stopReadAloudOnNoteSwitch = value;
+        }
+        break;
+      case "bargeInMode":
+        if (value === "detect" || value === "auto" || value === "manual") {
+          settings.bargeInMode = value;
+          shouldRefresh = true;
         }
         break;
       case "enableVoiceQa":
@@ -973,6 +1258,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
   private renderReadAloudSection(containerEl: HTMLElement): void {
     const { settings, capabilities } = this.host;
+    const currentTtsEngine = this.resolveEffectiveTts();
+    const activeTtsPreset = resolveTtsOpenAiPreset(settings.ttsPresetId);
+    const voiceMeta = this.describeTtsVoiceMeta(currentTtsEngine, settings.ttsPresetId);
 
     new Setting(containerEl).setName("Read aloud").setHeading();
 
@@ -983,28 +1271,120 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         for (const engine of capabilities.allowedTtsEngines) {
           dropdown.addOption(engine, TTS_ENGINE_LABELS[engine]);
         }
-        const current = capabilities.allowedTtsEngines.includes(settings.ttsEngine)
-          ? settings.ttsEngine
-          : capabilities.defaultTtsEngine;
-        dropdown.setValue(current).onChange(async (value) => {
+        dropdown.setValue(currentTtsEngine).onChange(async (value) => {
           settings.ttsEngine = asTtsEngineKind(value);
           await this.host.saveSettings();
           this.display();
         });
       });
 
+    if (currentTtsEngine === "openai-compat") {
+      new Setting(containerEl)
+        .setName("TTS preset")
+        .setDesc(
+          "Choose a cloud or local loopback OpenAI-compatible speech preset, or select custom endpoint.",
+        )
+        .addDropdown((dropdown) => {
+          for (const [id, label] of Object.entries(buildTtsPresetOptions())) {
+            dropdown.addOption(id, label);
+          }
+          dropdown.setValue(settings.ttsPresetId).onChange(async (value) => {
+            settings.ttsPresetId = value;
+            await this.host.saveSettings();
+            this.display();
+          });
+        });
+    }
+
+    if (currentTtsEngine === "vits-wasm") {
+      new Setting(containerEl)
+        .setName("VITS speaker")
+        .setDesc("Select one of the built-in VITS speakers or leave on default.")
+        .addDropdown((dropdown) => {
+          for (const [id, label] of Object.entries(buildVitsSpeakerOptions())) {
+            dropdown.addOption(id, label);
+          }
+          const selectedSpeaker = VITS_SPEAKERS.some((s) => s.name === settings.ttsVoice)
+            ? settings.ttsVoice
+            : "";
+          dropdown.setValue(selectedSpeaker).onChange(async (value) => {
+            settings.ttsVoice = value;
+            await this.host.saveSettings();
+            this.display();
+          });
+        });
+    }
+
     new Setting(containerEl)
       .setName("Preferred voice name")
-      .setDesc("Optional voice name or provider speaker ID. Leave empty to use the system default.")
+      .setDesc(voiceMeta.desc)
       .addText((text) => {
         text
-          .setPlaceholder("Default system voice")
+          .setPlaceholder(voiceMeta.placeholder)
           .setValue(settings.ttsVoice)
           .onChange(async (value) => {
             settings.ttsVoice = value.trim();
             await this.host.saveSettings();
           });
       });
+
+    if (currentTtsEngine === "openai-compat" || currentTtsEngine === "mimo") {
+      new Setting(containerEl)
+        .setName("TTS model override")
+        .setDesc("Leave empty to use the default speech model for the active provider or preset.")
+        .addText((text) => {
+          text
+            .setPlaceholder(
+              currentTtsEngine === "mimo"
+                ? MIMO_DEFAULT_MODEL
+                : activeTtsPreset?.model || "tts-1",
+            )
+            .setValue(settings.ttsModel)
+            .onChange(async (value) => {
+              settings.ttsModel = value.trim();
+              await this.host.saveSettings();
+            });
+        });
+
+      new Setting(containerEl)
+        .setName("TTS endpoint URL")
+        .setDesc(
+          "Optional HTTPS or loopback HTTP speech endpoint URL. Plaintext HTTP is blocked for remote hosts.",
+        )
+        .addText((text) => {
+          text
+            .setPlaceholder(
+              currentTtsEngine === "mimo"
+                ? MIMO_DEFAULT_BASE_URL
+                : activeTtsPreset?.baseUrl || "https://api.openai.com/v1",
+            )
+            .setValue(settings.ttsEndpointUrl)
+            .onChange(async (value) => {
+              const trimmed = value.trim();
+              const errMsg = this.validateOptionalEndpointMessage(trimmed);
+              if (errMsg) {
+                new Notice(errMsg);
+                return;
+              }
+              settings.ttsEndpointUrl = trimmed;
+              await this.host.saveSettings();
+            });
+        });
+
+      const presetScope =
+        currentTtsEngine === "openai-compat" ? settings.ttsPresetId : undefined;
+      const ttsSecretSetting = new Setting(containerEl)
+        .setName("Speech API key")
+        .setDesc(this.describeTtsSecretDesc(currentTtsEngine, settings.ttsPresetId));
+      this.attachSecretControl(
+        ttsSecretSetting,
+        getTtsSecretId(settings, currentTtsEngine, presetScope),
+        async (candidate) => {
+          setTtsSecretId(settings, currentTtsEngine, candidate, presetScope);
+          await this.host.saveSettings();
+        },
+      );
+    }
 
     new Setting(containerEl)
       .setName("Speech rate")
@@ -1033,22 +1413,63 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           });
       });
 
-    const currentTtsEngine = capabilities.allowedTtsEngines.includes(settings.ttsEngine)
-      ? settings.ttsEngine
-      : capabilities.defaultTtsEngine;
-    const ttsSecretSetting = new Setting(containerEl)
-      .setName("Speech API key")
+    new Setting(containerEl)
+      .setName("Subtitle text size")
+      .setDesc("Choose the font size for the live transcript and read-aloud subtitle card.")
+      .addDropdown((dropdown) => {
+        for (const key of ["small", "medium", "large"] as const) {
+          dropdown.addOption(key, SUBTITLE_FONT_SIZE_LABELS[key]);
+        }
+        dropdown.setValue(settings.subtitleFontSize).onChange(async (value) => {
+          if (value === "small" || value === "medium" || value === "large") {
+            settings.subtitleFontSize = value;
+            await this.host.saveSettings();
+          }
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Subtitle card width")
+      .setDesc("Choose the maximum width of the floating subtitle card.")
+      .addDropdown((dropdown) => {
+        for (const key of ["narrow", "medium", "wide"] as const) {
+          dropdown.addOption(key, SUBTITLE_WIDTH_LABELS[key]);
+        }
+        dropdown.setValue(settings.subtitleWidth).onChange(async (value) => {
+          if (value === "narrow" || value === "medium" || value === "wide") {
+            settings.subtitleWidth = value;
+            await this.host.saveSettings();
+          }
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Stop read-aloud when switching notes")
+      .setDesc("Immediately cancel active read-aloud when opening or switching to another note.")
+      .addToggle((toggle) => {
+        toggle.setValue(settings.stopReadAloudOnNoteSwitch).onChange(async (value) => {
+          settings.stopReadAloudOnNoteSwitch = value;
+          await this.host.saveSettings();
+        });
+      });
+
+    new Setting(containerEl)
+      .setName("Barge-in mode")
       .setDesc(
-        `Select a secret from Obsidian secret storage for ${TTS_ENGINE_LABELS[currentTtsEngine]} (suggested ID: ${toSecretId("tts", currentTtsEngine)}).`,
-      );
-    this.attachSecretControl(
-      ttsSecretSetting,
-      getTtsSecretId(settings, currentTtsEngine),
-      async (candidate) => {
-        setTtsSecretId(settings, currentTtsEngine, candidate);
-        await this.host.saveSettings();
-      },
-    );
+        "Control hands-free voice interruption during non-system read-aloud. System speech always uses manual stop to avoid speaker echo loops.",
+      )
+      .addDropdown((dropdown) => {
+        for (const key of ["detect", "auto", "manual"] as const) {
+          dropdown.addOption(key, BARGE_IN_MODE_LABELS[key]);
+        }
+        dropdown.setValue(settings.bargeInMode).onChange(async (value) => {
+          if (value === "detect" || value === "auto" || value === "manual") {
+            settings.bargeInMode = value;
+            await this.host.saveSettings();
+            this.display();
+          }
+        });
+      });
   }
 
   private renderAiModelSection(containerEl: HTMLElement): void {
@@ -1253,6 +1674,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     const vadBundle = MODEL_BUNDLES["silero-vad"];
     const senseBundle = MODEL_BUNDLES["sensevoice-int8"];
+    const vitsBundle = MODEL_BUNDLES["vits-zh-ll"];
     const expectedTotalBytes =
       vadBundle.totalBytes +
       senseBundle.totalBytes +
@@ -1261,6 +1683,23 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     card.createDiv({
       cls: "vm-model-meta",
       text: `Explicit download (~${formatMegabytes(expectedTotalBytes)} unpacked, SHA256-verified, zero vault pollution). Upstream licenses: Silero VAD (${vadBundle.license}), SenseVoice (${senseBundle.license}, ${ALLOWED_MODEL_HOSTNAMES.join(" / ")}), sherpa-onnx ${SHERPA_WASM_RUNTIME_202.version} WASM (${SHERPA_WASM_RUNTIME_202.license}, ${ALLOWED_WASM_HOSTNAMES.join(" / ")}).`,
+    });
+
+    card.createDiv({ cls: "vm-model-divider" });
+
+    const vitsHeader = card.createDiv({ cls: "vm-model-card-header" });
+    vitsHeader.createSpan({
+      cls: "vm-model-card-title",
+      text: "Optional offline speech synthesis (VITS)",
+    });
+    const vitsStatusBadge = vitsHeader.createSpan({
+      cls: "vm-model-badge-missing",
+      text: "Optional, not installed",
+    });
+
+    card.createDiv({
+      cls: "vm-model-meta",
+      text: `Optional local Mandarin read-aloud model (~${formatMegabytes(vitsBundle.totalBytes)} unpacked, 5 speakers, license: ${vitsBundle.license}).`,
     });
 
     const detailLine = card.createDiv({
@@ -1278,6 +1717,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       cls: "mod-cta",
       text: "Download or verify models",
     });
+    const downloadVitsBtn = actions.createEl("button", {
+      text: "Download optional VITS model",
+    });
     const cancelBtn = actions.createEl("button", {
       cls: "vm-subtitle-hidden",
       text: "Cancel download",
@@ -1293,10 +1735,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       if (!status) {
         statusBadge.className = "vm-model-badge-missing";
         statusBadge.setText("Unavailable");
+        vitsStatusBadge.className = "vm-model-badge-missing";
+        vitsStatusBadge.setText("Optional, not installed");
         return;
       }
+      const combinedVerifiedBytes = status.totalVerifiedBytes + status.vitsVerifiedBytes;
       detailLine.setText(
-        `Cache path: ${status.cacheDir} | Verified: ${formatMegabytes(status.totalVerifiedBytes)} (${status.verifiedFiles.length} files)`,
+        `Cache path: ${status.cacheDir} | Verified: ${formatMegabytes(combinedVerifiedBytes)}`,
       );
       if (status.ready) {
         statusBadge.className = "vm-model-badge-ready";
@@ -1305,10 +1750,18 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         statusBadge.className = "vm-model-badge-missing";
         statusBadge.setText(`Not installed (${status.missingOrCorruptFiles.length} pending)`);
       }
+      if (status.vitsReady) {
+        vitsStatusBadge.className = "vm-model-badge-ready";
+        vitsStatusBadge.setText("Ready");
+      } else {
+        vitsStatusBadge.className = "vm-model-badge-missing";
+        vitsStatusBadge.setText("Optional, not installed");
+      }
     };
 
     const setBusyUi = (busy: boolean): void => {
       downloadBtn.disabled = busy;
+      downloadVitsBtn.disabled = busy;
       clearBtn.disabled = busy;
       if (busy) {
         cancelBtn.removeClass("vm-subtitle-hidden");
@@ -1364,6 +1817,39 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         });
     });
 
+    downloadVitsBtn.addEventListener("click", () => {
+      if (!this.host.startVitsModelDownload) {
+        return;
+      }
+      setBusyUi(true);
+      progressBar.setCssProps({ "--vm-progress-width": "0%" });
+      progressLabel.setText("Starting optional VITS model download...");
+
+      void this.host
+        .startVitsModelDownload((progress) => {
+          const pct = Math.max(0, Math.min(100, progress.percent ?? 0));
+          progressBar.setCssProps({ "--vm-progress-width": `${pct}%` });
+          progressLabel.setText(
+            `${progress.phase}: ${progress.file} (${pct}% via ${progress.host})`,
+          );
+        })
+        .then((status) => {
+          applyStatusToUi(status);
+          progressBar.setCssProps({ "--vm-progress-width": "100%" });
+          progressLabel.setText("All optional VITS speech model files verified and ready.");
+          if (this.containerEl.isConnected) {
+            this.refreshTab();
+          }
+        })
+        .catch((err: unknown) => {
+          const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+          progressLabel.setText(`Download stopped: ${msg}`);
+        })
+        .finally(() => {
+          setBusyUi(false);
+        });
+    });
+
     cancelBtn.addEventListener("click", () => {
       this.host.cancelModelDownload?.();
       progressLabel.setText("Cancelling download (partial .part file preserved for resume)...");
@@ -1402,13 +1888,18 @@ export class VoiceModeSettingTab extends PluginSettingTab {
   }
 
   private renderRuntimeBanner(parentEl: HTMLElement): void {
-    const { capabilities } = this.host;
-    // Honest AEC probe status: until M2 wires live `probeTrackAec`, do not claim native AEC is active.
-    const bargeIn = resolveBargeInPolicy({
-      isMobile: capabilities.isMobile,
-      isSafari: Platform.isSafari,
-      nativeAecActive: false,
-    });
+    const { capabilities, settings } = this.host;
+    const effectiveTts = this.resolveEffectiveTts();
+    const usesSystemTts = effectiveTts === "system" || effectiveTts === "kokoro-daemon";
+    const bargeIn =
+      this.host.getBargeInDecision?.() ??
+      resolveBargeInPolicy({
+        requestedMode: settings.bargeInMode,
+        usesSystemTts,
+        isMobile: capabilities.isMobile,
+        isSafari: Platform.isSafari,
+        nativeAecActive: false,
+      });
 
     const banner = parentEl.createDiv({ cls: "vm-runtime-banner" });
     this.appendRuntimeRow(

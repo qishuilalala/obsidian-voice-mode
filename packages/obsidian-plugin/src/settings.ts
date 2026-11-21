@@ -2,6 +2,7 @@ import {
   LLM_PRESET_IDS,
   MODEL_HOST_PRIMARY,
   TTS_ENGINE_KINDS,
+  TTS_OPENAI_PRESETS,
   asLlmPresetId,
   asTtsEngineKind,
   validateEndpointUrl,
@@ -14,12 +15,16 @@ import {
   type SecretStore,
   type TtsEngineKind,
 } from "@voice-mode/core";
-import type { DictationMode } from "@voice-mode/browser";
+import type { BargeInMode, DictationMode } from "@voice-mode/browser";
 import type { SecretStorage } from "obsidian";
 import {
   DEFAULT_LOCAL_DAEMON_URL,
   type ObsidianAsrEngine,
 } from "./runtime-guard.ts";
+
+export type SubtitleFontSize = "small" | "medium" | "large";
+export type SubtitleWidth = "narrow" | "medium" | "wide";
+export type TtsSecretMapKey = TtsEngineKind | `openai-compat:${string}`;
 
 /**
  * Obsidian SecretStorage requires strictly lowercase alphanumeric IDs with optional hyphens.
@@ -40,8 +45,19 @@ const VALID_DICTATION_MODES: ReadonlySet<string> = new Set([
   "push-to-talk",
 ]);
 
+const VALID_SUBTITLE_FONT_SIZES: ReadonlySet<string> = new Set(["small", "medium", "large"]);
+const VALID_SUBTITLE_WIDTHS: ReadonlySet<string> = new Set(["narrow", "medium", "wide"]);
+const VALID_BARGE_IN_MODES: ReadonlySet<string> = new Set(["detect", "auto", "manual"]);
+const VALID_TTS_OPENAI_PRESETS: ReadonlySet<string> = new Set([
+  ...Object.keys(TTS_OPENAI_PRESETS),
+  "custom",
+]);
+
 const VALID_LLM_PRESETS: ReadonlySet<string> = new Set<string>(LLM_PRESET_IDS);
-const VALID_TTS_ENGINES: ReadonlySet<string> = new Set<string>(TTS_ENGINE_KINDS);
+const VALID_TTS_ENGINES: ReadonlySet<string> = new Set<string>([
+  ...TTS_ENGINE_KINDS,
+  ...Array.from(VALID_TTS_OPENAI_PRESETS, (presetId) => `openai-compat:${presetId}`),
+]);
 const VALID_TABLE_POLICIES: ReadonlySet<string> = new Set(["skip", "placeholder"]);
 
 const LEGACY_FLAT_SECRET_ID_KEYS: ReadonlySet<string> = new Set([
@@ -80,12 +96,18 @@ export interface VoiceModeSettings {
 
   // Read aloud
   ttsEngine: TtsEngineKind;
+  ttsPresetId: string;
+  ttsModel: string;
   ttsVoice: string;
   speechRate: number;
   markdownTablePolicy: MarkdownTablePolicy;
   maxSentenceChars: number;
+  subtitleFontSize: SubtitleFontSize;
+  subtitleWidth: SubtitleWidth;
+  stopReadAloudOnNoteSwitch: boolean;
+  bargeInMode: BargeInMode;
   ttsEndpointUrl: string;
-  ttsApiKeySecretIds: Partial<Record<TtsEngineKind, string>>;
+  ttsApiKeySecretIds: Partial<Record<TtsSecretMapKey, string>>;
 
   // Optional BYOK AI model
   enableVoiceQa: boolean;
@@ -113,10 +135,16 @@ export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
   enableSubtitleOverlay: true,
 
   ttsEngine: "system",
+  ttsPresetId: "siliconflow-cosyvoice2",
+  ttsModel: "",
   ttsVoice: "",
   speechRate: 1.0,
   markdownTablePolicy: "skip",
   maxSentenceChars: 200,
+  subtitleFontSize: "medium",
+  subtitleWidth: "medium",
+  stopReadAloudOnNoteSwitch: true,
+  bargeInMode: "detect",
   ttsEndpointUrl: "",
   ttsApiKeySecretIds: {},
 
@@ -257,25 +285,46 @@ export function setLlmSecretId(
 }
 
 /**
- * Read the SecretStorage ID bound to a specific TTS engine.
+ * Read the SecretStorage ID bound to a specific TTS engine (and optional OpenAI-compatible preset).
+ * When `presetId` is supplied on `"openai-compat"`, reads strictly `openai-compat:<presetId>` with
+ * zero cross-preset fallback so credentials never leak across providers or loopback endpoints.
  */
-export function getTtsSecretId(settings: VoiceModeSettings, engine: TtsEngineKind): string {
+export function getTtsSecretId(
+  settings: VoiceModeSettings,
+  engine: TtsEngineKind,
+  presetId?: string,
+): string {
+  if (engine === "openai-compat" && presetId !== undefined) {
+    if (!VALID_TTS_OPENAI_PRESETS.has(presetId)) {
+      return "";
+    }
+    return cleanSecretId(settings.ttsApiKeySecretIds[`openai-compat:${presetId}`]);
+  }
   return cleanSecretId(settings.ttsApiKeySecretIds[engine]);
 }
 
 /**
- * Bind (or clear) the SecretStorage ID for a specific TTS engine without affecting other engines.
+ * Bind (or clear) the SecretStorage ID for a specific TTS engine or OpenAI-compatible preset
+ * without affecting other engines or presets.
  */
 export function setTtsSecretId(
   settings: VoiceModeSettings,
   engine: TtsEngineKind,
   secretId: string,
+  presetId?: string,
 ): void {
+  if (engine === "openai-compat" && presetId !== undefined && !VALID_TTS_OPENAI_PRESETS.has(presetId)) {
+    return;
+  }
+  const targetKey: TtsSecretMapKey =
+    engine === "openai-compat" && presetId !== undefined
+      ? `openai-compat:${presetId}`
+      : engine;
   const cleaned = cleanSecretId(secretId);
   if (cleaned) {
-    settings.ttsApiKeySecretIds[engine] = cleaned;
+    settings.ttsApiKeySecretIds[targetKey] = cleaned;
   } else {
-    delete settings.ttsApiKeySecretIds[engine];
+    delete settings.ttsApiKeySecretIds[targetKey];
   }
 }
 
@@ -303,7 +352,7 @@ export function stripSecretsFromSettings(raw: unknown): Record<string, unknown> 
     }
 
     if (key === "ttsApiKeySecretIds") {
-      clean[key] = sanitizeSecretIdMap<TtsEngineKind>(value, VALID_TTS_ENGINES);
+      clean[key] = sanitizeSecretIdMap<TtsSecretMapKey>(value, VALID_TTS_ENGINES);
       continue;
     }
 
@@ -407,6 +456,30 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
       ? (sanitized.markdownTablePolicy as MarkdownTablePolicy)
       : DEFAULT_SETTINGS.markdownTablePolicy;
 
+  const subtitleFontSize: SubtitleFontSize =
+    typeof sanitized.subtitleFontSize === "string" &&
+    VALID_SUBTITLE_FONT_SIZES.has(sanitized.subtitleFontSize)
+      ? (sanitized.subtitleFontSize as SubtitleFontSize)
+      : DEFAULT_SETTINGS.subtitleFontSize;
+
+  const subtitleWidth: SubtitleWidth =
+    typeof sanitized.subtitleWidth === "string" &&
+    VALID_SUBTITLE_WIDTHS.has(sanitized.subtitleWidth)
+      ? (sanitized.subtitleWidth as SubtitleWidth)
+      : DEFAULT_SETTINGS.subtitleWidth;
+
+  const bargeInMode: BargeInMode =
+    typeof sanitized.bargeInMode === "string" && VALID_BARGE_IN_MODES.has(sanitized.bargeInMode)
+      ? (sanitized.bargeInMode as BargeInMode)
+      : DEFAULT_SETTINGS.bargeInMode;
+
+  const rawTtsPreset =
+    typeof sanitized.ttsPresetId === "string" ? sanitized.ttsPresetId.trim() : "";
+  const ttsPresetId =
+    rawTtsPreset === "custom" || VALID_TTS_OPENAI_PRESETS.has(rawTtsPreset)
+      ? rawTtsPreset
+      : DEFAULT_SETTINGS.ttsPresetId;
+
   const validatedReplacements = validateReplacements(sanitized.asrReplacements);
   const asrReplacements = validatedReplacements.ok ? validatedReplacements.rules : [];
 
@@ -434,14 +507,23 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
         : DEFAULT_SETTINGS.enableSubtitleOverlay,
 
     ttsEngine,
+    ttsPresetId,
+    ttsModel: typeof sanitized.ttsModel === "string" ? sanitized.ttsModel.trim() : "",
     ttsVoice: typeof sanitized.ttsVoice === "string" ? sanitized.ttsVoice.trim() : "",
     speechRate: clampNumber(sanitized.speechRate, 0.5, 2.0, DEFAULT_SETTINGS.speechRate),
     markdownTablePolicy,
     maxSentenceChars: Math.round(
       clampNumber(sanitized.maxSentenceChars, 60, 500, DEFAULT_SETTINGS.maxSentenceChars),
     ),
+    subtitleFontSize,
+    subtitleWidth,
+    stopReadAloudOnNoteSwitch:
+      typeof sanitized.stopReadAloudOnNoteSwitch === "boolean"
+        ? sanitized.stopReadAloudOnNoteSwitch
+        : DEFAULT_SETTINGS.stopReadAloudOnNoteSwitch,
+    bargeInMode,
     ttsEndpointUrl: sanitizeOptionalEndpointUrl(sanitized.ttsEndpointUrl),
-    ttsApiKeySecretIds: sanitizeSecretIdMap<TtsEngineKind>(
+    ttsApiKeySecretIds: sanitizeSecretIdMap<TtsSecretMapKey>(
       sanitized.ttsApiKeySecretIds,
       VALID_TTS_ENGINES,
     ),

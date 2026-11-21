@@ -1,4 +1,9 @@
-import type { AsrEngineKind, TtsEngineKind } from "@voice-mode/core";
+import {
+  isCloudAsrEngine,
+  isCloudTtsEngine,
+  type AsrEngineKind,
+  type TtsEngineKind,
+} from "@voice-mode/core";
 
 export type HostPlatformClass = "desktop" | "mobile";
 export type DesktopOsHint = "macos" | "linux" | "windows";
@@ -102,22 +107,36 @@ export function detectRuntimeCapabilities(
 export function resolveEffectiveAsrEngine(
   requested: ObsidianAsrEngine,
   capabilities: RuntimeCapabilities,
+  allowCloudFallbackOnMobile = true,
 ): ObsidianAsrEngine {
-  if (capabilities.allowedAsrEngines.includes(requested)) {
-    return requested;
+  if (!capabilities.allowedAsrEngines.includes(requested)) {
+    return capabilities.defaultAsrEngine;
   }
-  return capabilities.defaultAsrEngine;
+  if (
+    capabilities.isMobile &&
+    !allowCloudFallbackOnMobile &&
+    requested !== "system" &&
+    isCloudAsrEngine(requested)
+  ) {
+    return capabilities.defaultAsrEngine;
+  }
+  return requested;
 }
 
 /**
- * Guard any persisted TTS engine selection against the current runtime's capabilities.
+ * Guard any persisted TTS engine selection against the current runtime's capabilities
+ * and mobile cloud-fallback privacy preference.
  */
 export function resolveEffectiveTtsEngine(
   requested: TtsEngineKind,
   capabilities: RuntimeCapabilities,
+  allowCloudFallbackOnMobile = true,
 ): TtsEngineKind {
-  if (capabilities.allowedTtsEngines.includes(requested)) {
-    return requested;
+  if (!capabilities.allowedTtsEngines.includes(requested)) {
+    return capabilities.defaultTtsEngine;
   }
-  return capabilities.defaultTtsEngine;
+  if (capabilities.isMobile && !allowCloudFallbackOnMobile && isCloudTtsEngine(requested)) {
+    return capabilities.defaultTtsEngine;
+  }
+  return requested;
 }

@@ -6,12 +6,16 @@
 
 import type { TtsSynthResult } from '@voice-mode/core'
 
-export type PlaybackQueueState = 'idle' | 'playing' | 'disposed'
+export type PlaybackQueueState = 'idle' | 'playing' | 'paused' | 'disposed'
 export type QueueOverflowPolicy = 'drop-oldest' | 'drop-newest'
 
 export interface AudioSink {
   /** Play synthesized audio; must respect `signal` abort for immediate interruption. */
   play(payload: TtsSynthResult, signal: AbortSignal): Promise<void>
+  /** Optional hook to suspend in-flight playback output cleanly without dropping buffered audio. */
+  pause?(): void
+  /** Optional hook to resume suspended playback output. */
+  resume?(): void
   /** Optional immediate synchronous halt hook (e.g., AudioBufferSourceNode.stop or SIGTERM). */
   stop?(): void
 }
@@ -101,6 +105,7 @@ export class PlaybackQueue {
     synthController: AbortController
     playController: AbortController
   } | null = null
+  private pauseGate: { promise: Promise<void>; release: () => void } | null = null
   private pumpRunning = false
   private drainWaiters: Array<() => void> = []
 
@@ -146,9 +151,83 @@ export class PlaybackQueue {
       }
     }
     this.waiting.push({ text: trimmed, epoch: this.currentEpoch })
-    this.setState('playing')
+    if (this.currentState === 'idle') {
+      this.setState('playing')
+    }
     this.fillPrefetchWindow()
     void this.ensurePump()
+    return true
+  }
+
+  /**
+   * Suspend active playback and hold inter-sentence advancement until `resume()`,
+   * `skipCurrent()`, `cancel()`, or `dispose()` is called.
+   */
+  pause(): boolean {
+    if (this.currentState !== 'playing') return false
+    this.ensurePauseGate()
+    this.setState('paused')
+    try {
+      this.sink.pause?.()
+    } catch {
+      // Sink pause errors must not break state transition.
+    }
+    return true
+  }
+
+  /**
+   * Resume a paused queue back to `'playing'` and release the inter-sentence pause gate.
+   */
+  resume(): boolean {
+    if (this.currentState !== 'paused') return false
+    this.setState('playing')
+    try {
+      this.sink.resume?.()
+    } catch {
+      // Sink resume errors must not break state transition.
+    }
+    this.releasePauseGate()
+    if (this.isEmpty() && !this.pumpRunning) {
+      this.setState('idle')
+      this.resolveDrainWaiters()
+    } else if (!this.isEmpty()) {
+      void this.ensurePump()
+    }
+    return true
+  }
+
+  /**
+   * Abort ONLY the currently synthesizing/playing head sentence without clearing
+   * prefetched or waiting sentences. If `'paused'`, resumes `'playing'` into the next
+   * sentence (or transitions directly to `'idle'` when no items remain).
+   */
+  skipCurrent(): boolean {
+    if (this.currentState !== 'playing' && this.currentState !== 'paused') {
+      return false
+    }
+    const active = this.playingEntry
+    this.playingEntry = null
+    if (active) {
+      active.synthController.abort(new Error('playback skipped'))
+      active.playController.abort(new Error('playback skipped'))
+    }
+    try {
+      this.sink.stop?.()
+    } catch {
+      // Sink stop errors are swallowed during skip.
+    }
+    this.fillPrefetchWindow()
+    if (this.isEmpty()) {
+      this.setState('idle')
+      this.releasePauseGate()
+      this.resolveDrainWaiters()
+    } else {
+      if (this.currentState === 'paused') {
+        this.setState('playing')
+      }
+      this.releasePauseGate()
+      void this.ensurePump()
+    }
     return true
   }
 
@@ -174,7 +253,7 @@ export class PlaybackQueue {
 
   /** Resolves once the queue is empty and no synthesis or playback is active (or on cancel/dispose). */
   waitUntilDrained(): Promise<void> {
-    if (this.isEmpty()) return Promise.resolve()
+    if (this.isEmpty() && this.currentState !== 'paused') return Promise.resolve()
     return new Promise<void>((resolve) => {
       this.drainWaiters.push(resolve)
     })
@@ -186,6 +265,23 @@ export class PlaybackQueue {
 
   private isDisposed(): boolean {
     return this.currentState === 'disposed'
+  }
+
+  private ensurePauseGate(): Promise<void> {
+    if (!this.pauseGate) {
+      let release!: () => void
+      const promise = new Promise<void>((resolve) => {
+        release = resolve
+      })
+      this.pauseGate = { promise, release }
+    }
+    return this.pauseGate.promise
+  }
+
+  private releasePauseGate(): void {
+    const gate = this.pauseGate
+    this.pauseGate = null
+    gate?.release()
   }
 
   private notifyDrop(droppedText: string): void {
@@ -227,6 +323,7 @@ export class PlaybackQueue {
       active.synthController.abort(new Error('playback cancelled'))
       active.playController.abort(new Error('playback cancelled'))
     }
+    this.releasePauseGate()
     try {
       this.sink.stop?.()
     } catch {
@@ -275,6 +372,11 @@ export class PlaybackQueue {
     this.pumpRunning = true
     try {
       while (!this.isDisposed()) {
+        while (this.currentState === 'paused' && !this.isDisposed()) {
+          await this.ensurePauseGate()
+        }
+        if (this.isDisposed()) break
+
         this.fillPrefetchWindow()
         const head = this.prefetched.shift()
         if (!head) break
@@ -288,12 +390,33 @@ export class PlaybackQueue {
         }
         this.playingEntry = playToken
 
-        // Abort-race synthesis so a hung/non-abortable synthesize() never head-of-line blocks cancel().
+        // Abort-race synthesis so a hung/non-abortable synthesize() never head-of-line blocks cancel()/skipCurrent().
         const synthOutcome = await raceWithAbort(head.promise, head.controller.signal)
 
-        // Epoch guard: if cancelled/disposed while synthesizing, never notify onPlayStart or invoke sink.play().
+        // Epoch/token guard: if cancelled, skipped, or disposed while synthesizing, never notify onPlayStart or invoke sink.play().
         if (
           synthOutcome.aborted ||
+          playController.signal.aborted ||
+          this.isDisposed() ||
+          head.epoch !== this.currentEpoch ||
+          this.playingEntry !== playToken
+        ) {
+          if (this.playingEntry === playToken) this.playingEntry = null
+          continue
+        }
+
+        while (
+          this.currentState === 'paused' &&
+          !playController.signal.aborted &&
+          !this.isDisposed() &&
+          head.epoch === this.currentEpoch &&
+          this.playingEntry === playToken
+        ) {
+          await raceWithAbort(this.ensurePauseGate(), playController.signal)
+        }
+
+        if (
+          playController.signal.aborted ||
           this.isDisposed() ||
           head.epoch !== this.currentEpoch ||
           this.playingEntry !== playToken
@@ -310,8 +433,29 @@ export class PlaybackQueue {
             // Observer errors must not prevent playback.
           }
 
-          // Re-check epoch in case onPlayStart synchronously triggered cancel() or dispose().
+          // Re-check epoch/token in case onPlayStart synchronously triggered cancel(), skipCurrent(), or dispose().
           if (
+            playController.signal.aborted ||
+            this.isDisposed() ||
+            head.epoch !== this.currentEpoch ||
+            this.playingEntry !== playToken
+          ) {
+            if (this.playingEntry === playToken) this.playingEntry = null
+            continue
+          }
+
+          while (
+            this.currentState === 'paused' &&
+            !playController.signal.aborted &&
+            !this.isDisposed() &&
+            head.epoch === this.currentEpoch &&
+            this.playingEntry === playToken
+          ) {
+            await raceWithAbort(this.ensurePauseGate(), playController.signal)
+          }
+
+          if (
+            playController.signal.aborted ||
             this.isDisposed() ||
             head.epoch !== this.currentEpoch ||
             this.playingEntry !== playToken
@@ -324,7 +468,7 @@ export class PlaybackQueue {
             const playPromise = Promise.resolve().then(() =>
               this.sink.play(payload, playController.signal),
             )
-            // Guard against late unhandled rejection if cancel() resolves the race early.
+            // Guard against late unhandled rejection if cancel()/skipCurrent() resolves the race early.
             playPromise.catch(() => undefined)
             await raceWithAbort(playPromise, playController.signal)
           } catch (err) {
@@ -352,7 +496,11 @@ export class PlaybackQueue {
     } finally {
       this.pumpRunning = false
       if (!this.isDisposed()) {
-        if (this.isEmpty()) {
+        if (this.currentState === 'paused') {
+          if (!this.isEmpty()) {
+            void this.ensurePump()
+          }
+        } else if (this.isEmpty()) {
           this.setState('idle')
           this.resolveDrainWaiters()
         } else {

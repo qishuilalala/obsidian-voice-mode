@@ -1,16 +1,25 @@
 import {
   MODEL_BUNDLES,
+  MimoTtsEngine,
+  OpenAiCompatTtsEngine,
   buildMemfsSherpaGlue,
   createAsrReplacer,
+  isCloudAsrEngine,
+  isCloudTtsEngine,
   redactSecrets,
+  type TtsEngineKind,
 } from "@voice-mode/core";
 import {
+  AecBargeInMonitor,
   OfflineDictationSession,
   SherpaWorkerClient,
+  VitsWasmTtsEngine,
   createSherpaWorkerScript,
   resolveBargeInPolicy,
+  type BargeInPolicyDecision,
   type DictationMode,
   type DictationSessionState,
+  type PlaybackQueueState,
 } from "@voice-mode/browser";
 import { MarkdownView, Notice, Platform, Plugin } from "obsidian";
 import { getVaultBasePath, openExternalDirectory } from "./desktop-fs.ts";
@@ -26,6 +35,7 @@ import {
   type DictationStackStatus,
   type ModelDownloadProgress,
 } from "./model-manager.ts";
+import { createObsidianFetchWithCorsFallback } from "./obsidian-http.ts";
 import {
   detectRuntimeCapabilities,
   resolveEffectiveAsrEngine,
@@ -35,6 +45,7 @@ import {
 import {
   ObsidianSecretStore,
   createDefaultSettings,
+  getTtsSecretId,
   hasSecretStorage,
   normalizeSettings,
   stripSecretsFromSettings,
@@ -143,23 +154,40 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   );
 
   private secretStore: ObsidianSecretStore = new ObsidianSecretStore(null);
+  private corsFetch: typeof fetch = createObsidianFetchWithCorsFallback({
+    isDesktop: Platform.isDesktop,
+  });
   private speechPlayer: SpeechPlayer | null = null;
+  private vitsTtsEngine: VitsWasmTtsEngine | null = null;
+  private openAiTtsEngine: OpenAiCompatTtsEngine | null = null;
+  private mimoTtsEngine: MimoTtsEngine | null = null;
+  private httpTtsConfigKey = "";
   private modelManager: DesktopModelManager | null = null;
   private modelManagerConfigKey = "";
   private workerClient: SherpaWorkerClient | null = null;
+  private bargeInWorkerClient: SherpaWorkerClient | null = null;
   private offlineSession: OfflineDictationSession | null = null;
+  private bargeInMonitor: AecBargeInMonitor | null = null;
+  private bargeInStateEpoch = 0;
+  private lastBargeInDecision: BargeInPolicyDecision | null = null;
+  private aecDowngradeNotified = false;
   private downloadAbortController: AbortController | null = null;
 
   private statusBarEl: HTMLElement | null = null;
   private statusLabelEl: HTMLElement | null = null;
   private subtitleOverlayEl: HTMLElement | null = null;
+  private subtitleCardEl: HTMLElement | null = null;
   private subtitleRoleEl: HTMLElement | null = null;
+  private subtitleControlsEl: HTMLElement | null = null;
+  private subtitlePauseBtnEl: HTMLButtonElement | null = null;
   private subtitleTextEl: HTMLElement | null = null;
   private subtitleHideTimer: number | null = null;
   private activeRecognition: BrowserSpeechRecognition | null = null;
   private listening = false;
   private startingDictation = false;
   private dictationStartEpoch = 0;
+  private readAloudStartEpoch = 0;
+  private readingNotePath: string | null = null;
   private pointerHoldActive = false;
   private recognitionErrored = false;
   private overflowNotified = false;
@@ -170,9 +198,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.secretStore = new ObsidianSecretStore(
       hasSecretStorage(this.app) ? this.app.secretStorage : null,
     );
+    this.corsFetch = createObsidianFetchWithCorsFallback({ isDesktop: Platform.isDesktop });
     await this.loadSettings();
 
-    const effectiveTts = resolveEffectiveTtsEngine(this.settings.ttsEngine, this.capabilities);
+    const effectiveTts = this.getEffectiveTtsEngine();
     this.speechPlayer = new SpeechPlayer(
       {
         engine: effectiveTts,
@@ -182,19 +211,20 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       },
       {
         onStateChange: (state) => {
-          if (state === "playing") {
-            this.setStatus("speaking");
-          } else if (!this.isDictationBusy() && this.currentStatus !== "error") {
-            this.setStatus("idle");
-            this.hideSubtitleOverlay();
-          }
+          this.handlePlaybackStateChange(state);
         },
         onSentenceStart: (sentence) => {
-          this.showSubtitleOverlay("Reading aloud", sentence);
+          this.showSubtitleOverlay("Reading aloud", sentence, undefined, true);
         },
         onEngineFallback: (requested) => {
+          if (requested === "kokoro-daemon") {
+            new Notice(
+              "Local Kokoro voice daemon is not connected; falling back to system speech synthesis.",
+            );
+            return;
+          }
           new Notice(
-            `Speech engine "${requested}" is scheduled for milestone M2; falling back to system speech synthesis.`,
+            `Speech engine "${requested}" is unavailable; falling back to system speech synthesis.`,
           );
         },
         onDrop: () => {
@@ -207,16 +237,48 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         },
         onError: (err) => {
           const message = redactSecrets(err instanceof Error ? err.message : String(err));
+          this.stopReadAloudSilently();
           this.setStatus("error");
-          this.hideSubtitleOverlay();
           new Notice(`Read-aloud failed: ${message}`);
         },
       },
       () => activeWindow,
     );
+    this.syncSpeechPlayerEngines(true);
 
     this.mountStatusBar();
     this.mountSubtitleOverlay(activeDocument);
+
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        if (!this.settings.stopReadAloudOnNoteSwitch || !this.speechPlayer?.isActive) {
+          return;
+        }
+        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
+        const activePath = activeView?.file?.path ?? null;
+        if (activePath !== this.readingNotePath) {
+          this.stopReadAloudSilently();
+        }
+      }),
+    );
+
+    this.registerEvent(
+      this.app.workspace.on("file-open", (file) => {
+        if (!this.settings.stopReadAloudOnNoteSwitch || !this.speechPlayer?.isActive) {
+          return;
+        }
+        const nextPath = file?.path ?? null;
+        if (nextPath !== this.readingNotePath) {
+          this.stopReadAloudSilently();
+        }
+      }),
+    );
+
+    this.registerDomEvent(window, "pagehide", () => {
+      if (this.speechPlayer?.isActive) {
+        this.stopReadAloudSilently();
+      }
+    });
 
     this.addRibbonIcon("mic", "Toggle voice dictation", () => {
       void this.toggleDictation();
@@ -242,7 +304,23 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       id: "read-aloud",
       name: "Read selection or note aloud",
       callback: () => {
-        this.readSelectionOrNoteAloud();
+        void this.readSelectionOrNoteAloud();
+      },
+    });
+
+    this.addCommand({
+      id: "pause-resume-read-aloud",
+      name: "Pause or resume read-aloud",
+      callback: () => {
+        this.togglePauseReadAloud();
+      },
+    });
+
+    this.addCommand({
+      id: "skip-read-aloud-sentence",
+      name: "Skip current read-aloud sentence",
+      callback: () => {
+        this.skipReadAloudSentence();
       },
     });
 
@@ -267,15 +345,33 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   onunload(): void {
     this.dictationStartEpoch += 1;
+    this.readAloudStartEpoch += 1;
+    this.bargeInStateEpoch += 1;
+    this.readingNotePath = null;
     this.startingDictation = false;
     this.pointerHoldActive = false;
     this.cancelModelDownload();
     this.stopBrowserRecognition();
     this.clearSubtitleHideTimer();
 
+    if (this.bargeInMonitor) {
+      void this.bargeInMonitor.stop();
+      this.bargeInMonitor = null;
+    }
+
     if (this.offlineSession) {
       void this.offlineSession.abort();
       this.offlineSession = null;
+    }
+
+    this.vitsTtsEngine = null;
+    this.openAiTtsEngine = null;
+    this.mimoTtsEngine = null;
+    this.httpTtsConfigKey = "";
+
+    if (this.speechPlayer) {
+      void this.speechPlayer.dispose();
+      this.speechPlayer = null;
     }
 
     if (this.workerClient) {
@@ -283,17 +379,20 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.workerClient = null;
     }
 
-    this.modelManager = null;
-
-    if (this.speechPlayer) {
-      void this.speechPlayer.dispose();
-      this.speechPlayer = null;
+    if (this.bargeInWorkerClient) {
+      void this.bargeInWorkerClient.dispose();
+      this.bargeInWorkerClient = null;
     }
+
+    this.modelManager = null;
 
     if (this.subtitleOverlayEl) {
       this.subtitleOverlayEl.remove();
       this.subtitleOverlayEl = null;
+      this.subtitleCardEl = null;
       this.subtitleRoleEl = null;
+      this.subtitleControlsEl = null;
+      this.subtitlePauseBtnEl = null;
       this.subtitleTextEl = null;
     }
 
@@ -312,14 +411,24 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     Object.assign(this.settings, normalized);
     await this.saveData(stripSecretsFromSettings(this.settings));
 
+    this.lastBargeInDecision = null;
+    this.applySubtitleCardModifiers();
+
     if (this.speechPlayer) {
-      const effectiveTts = resolveEffectiveTtsEngine(this.settings.ttsEngine, this.capabilities);
+      const effectiveTts = this.getEffectiveTtsEngine();
       this.speechPlayer.updateConfig({
         engine: effectiveTts,
         voice: this.settings.ttsVoice,
         rate: this.settings.speechRate,
         language: this.settings.dictationLanguage,
       });
+      this.syncSpeechPlayerEngines();
+      if (this.bargeInMonitor) {
+        this.bargeInMonitor.updateMode(this.settings.bargeInMode);
+      }
+      if (this.speechPlayer.state === "playing") {
+        void this.syncBargeInForPlaybackState("playing");
+      }
     }
 
     const resolvedLanguage = resolveSenseVoiceLanguage(this.settings.dictationLanguage);
@@ -337,6 +446,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.workerClient.updateIdleUnloadMs(this.resolveWorkerIdleUnloadMs());
     }
 
+    if (this.bargeInWorkerClient) {
+      this.bargeInWorkerClient.updateIdleUnloadMs(this.resolveWorkerIdleUnloadMs());
+    }
+
     if (!this.settings.enableSubtitleOverlay) {
       this.hideSubtitleOverlay();
     }
@@ -344,6 +457,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   getVaultBasePath(): string | null {
     return getVaultBasePath(this.app.vault.adapter as { getBasePath?: () => string });
+  }
+
+  getBargeInDecision(): BargeInPolicyDecision | null {
+    return this.lastBargeInDecision;
   }
 
   async getModelStatus(): Promise<DictationStackStatus | null> {
@@ -396,6 +513,44 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
   }
 
+  async startVitsModelDownload(
+    onProgress?: (progress: ModelDownloadProgress) => void,
+  ): Promise<DictationStackStatus> {
+    const manager = this.ensureDesktopModelManager();
+    if (!manager) {
+      throw new Error("Local offline WASM models are only available on desktop.");
+    }
+    if (this.downloadAbortController) {
+      return manager.downloadVitsStack({
+        signal: this.downloadAbortController.signal,
+        onProgress,
+      });
+    }
+
+    const controller = new AbortController();
+    this.downloadAbortController = controller;
+    try {
+      const status = await manager.downloadVitsStack({
+        signal: controller.signal,
+        onProgress,
+      });
+      if (status.vitsReady && this.settings.ttsEngine === "system") {
+        this.settings.ttsEngine = "vits-wasm";
+        await this.saveSettings();
+        new Notice(
+          "Optional local VITS model verified and ready. Switched speech engine to VITS WASM.",
+        );
+      } else if (status.vitsReady) {
+        new Notice("Optional local VITS model verified and ready.");
+      }
+      return status;
+    } finally {
+      if (this.downloadAbortController === controller) {
+        this.downloadAbortController = null;
+      }
+    }
+  }
+
   cancelModelDownload(): void {
     if (this.downloadAbortController) {
       this.downloadAbortController.abort();
@@ -409,13 +564,24 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
     this.dictationStartEpoch += 1;
+    this.readAloudStartEpoch += 1;
+    this.bargeInStateEpoch += 1;
     this.startingDictation = false;
     this.pointerHoldActive = false;
+    if (this.speechPlayer?.isActive) {
+      this.stopReadAloudSilently();
+    }
+    if (this.bargeInMonitor) {
+      await this.bargeInMonitor.stop();
+    }
     if (this.offlineSession && this.offlineSession.state !== "idle") {
       await this.offlineSession.abort();
     }
     if (this.workerClient) {
       await this.workerClient.unload();
+    }
+    if (this.bargeInWorkerClient) {
+      await this.bargeInWorkerClient.unload();
     }
     await manager.clearCachedModels();
     new Notice("Cleared cached offline speech models outside the vault.");
@@ -427,6 +593,22 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
     await openExternalDirectory(manager.resolveCacheDir(), { isDesktop: Platform.isDesktop });
+  }
+
+  private getEffectiveAsrEngine() {
+    return resolveEffectiveAsrEngine(
+      this.settings.asrEngine,
+      this.capabilities,
+      this.settings.allowCloudFallbackOnMobile,
+    );
+  }
+
+  private getEffectiveTtsEngine(): TtsEngineKind {
+    return resolveEffectiveTtsEngine(
+      this.settings.ttsEngine,
+      this.capabilities,
+      this.settings.allowCloudFallbackOnMobile,
+    );
   }
 
   private resolveWorkerIdleUnloadMs(): number {
@@ -449,10 +631,25 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return this.modelManager;
     }
 
+    if (this.bargeInMonitor) {
+      void this.bargeInMonitor.stop();
+      this.bargeInMonitor = null;
+    }
+
+    if (this.vitsTtsEngine) {
+      void this.vitsTtsEngine.close();
+      this.vitsTtsEngine = null;
+    }
+
     if (this.workerClient) {
       void this.workerClient.dispose();
       this.workerClient = null;
       this.offlineSession = null;
+    }
+
+    if (this.bargeInWorkerClient) {
+      void this.bargeInWorkerClient.dispose();
+      this.bargeInWorkerClient = null;
     }
 
     this.modelManagerConfigKey = configKey;
@@ -465,7 +662,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     return this.modelManager;
   }
 
-  private ensureOfflineDictationSession(): OfflineDictationSession | null {
+  private ensureSherpaWorkerClient(): SherpaWorkerClient | null {
     const manager = this.ensureDesktopModelManager();
     if (!manager) {
       return null;
@@ -488,9 +685,259 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       });
     }
 
+    return this.workerClient;
+  }
+
+  private syncSpeechPlayerEngines(forceRecreateHttp = false): void {
+    if (!this.speechPlayer) {
+      return;
+    }
+
+    const workerClient = this.ensureSherpaWorkerClient();
+    if (workerClient) {
+      if (!this.vitsTtsEngine) {
+        this.vitsTtsEngine = new VitsWasmTtsEngine({
+          workerClient,
+          voice: this.settings.ttsVoice || undefined,
+          rate: this.settings.speechRate,
+          disposeWorkerOnClose: false,
+        });
+      } else {
+        this.vitsTtsEngine.updateVoice(
+          this.settings.ttsVoice || "suyingxue",
+          this.settings.speechRate,
+        );
+      }
+      this.speechPlayer.registerEngine(this.vitsTtsEngine);
+    } else if (this.vitsTtsEngine) {
+      void this.vitsTtsEngine.close();
+      this.vitsTtsEngine = null;
+      this.speechPlayer.unregisterEngine("vits-wasm");
+    }
+
+    const nextHttpKey = JSON.stringify([
+      this.settings.ttsPresetId,
+      this.settings.ttsEndpointUrl,
+      this.settings.ttsModel,
+      this.settings.ttsVoice,
+    ]);
+
+    if (
+      forceRecreateHttp ||
+      nextHttpKey !== this.httpTtsConfigKey ||
+      !this.openAiTtsEngine ||
+      !this.mimoTtsEngine
+    ) {
+      const prevOpenAi = this.openAiTtsEngine;
+      const prevMimo = this.mimoTtsEngine;
+
+      this.openAiTtsEngine = new OpenAiCompatTtsEngine({
+        presetId: this.settings.ttsPresetId,
+        baseUrl: this.settings.ttsEndpointUrl || undefined,
+        model: this.settings.ttsModel || undefined,
+        voice: this.settings.ttsVoice || undefined,
+        apiKey: () => {
+          const secretId = getTtsSecretId(
+            this.settings,
+            "openai-compat",
+            this.settings.ttsPresetId,
+          );
+          return secretId ? this.secretStore.getSecret(secretId) : null;
+        },
+        fetchImpl: this.corsFetch,
+      });
+
+      this.mimoTtsEngine = new MimoTtsEngine({
+        baseUrl: this.settings.ttsEndpointUrl || undefined,
+        model: this.settings.ttsModel || undefined,
+        voice: this.settings.ttsVoice || undefined,
+        apiKey: () => {
+          const secretId = getTtsSecretId(this.settings, "mimo");
+          return secretId ? this.secretStore.getSecret(secretId) : null;
+        },
+        fetchImpl: this.corsFetch,
+      });
+
+      this.speechPlayer.registerEngine(this.openAiTtsEngine);
+      this.speechPlayer.registerEngine(this.mimoTtsEngine);
+      this.httpTtsConfigKey = nextHttpKey;
+
+      if (!this.speechPlayer.isActive) {
+        void prevOpenAi?.close().catch(() => undefined);
+        void prevMimo?.close().catch(() => undefined);
+      }
+    }
+  }
+
+  private ensureBargeInWorkerClient(): SherpaWorkerClient | null {
+    const manager = this.ensureDesktopModelManager();
+    if (!manager) {
+      return null;
+    }
+
+    if (!this.bargeInWorkerClient) {
+      this.bargeInWorkerClient = new SherpaWorkerClient({
+        createWorkerSource: async () => {
+          const glue = await manager.readWasmGlueTexts();
+          return createSherpaWorkerScript(buildMemfsSherpaGlue(glue));
+        },
+        loadModelBinaries: (target, includeWasm) => manager.readTargetBinaries(target, includeWasm),
+        modelConfigs: {
+          vad: {
+            threshold: 0.35,
+            minSpeechDuration: 0.12,
+            minSilenceDuration: 0.35,
+          },
+        },
+        idleUnloadMs: this.resolveWorkerIdleUnloadMs(),
+      });
+    }
+
+    return this.bargeInWorkerClient;
+  }
+
+  private ensureBargeInMonitor(): AecBargeInMonitor | null {
+    const vadWorkerClient = this.ensureBargeInWorkerClient();
+    if (!vadWorkerClient) {
+      return null;
+    }
+    if (!this.bargeInMonitor) {
+      this.bargeInMonitor = new AecBargeInMonitor({
+        workerClient: vadWorkerClient,
+        bargeInMode: this.settings.bargeInMode,
+        isSafari: Platform.isSafari,
+        isMobile: this.capabilities.isMobile,
+        onBargeIn: () => {
+          this.readingNotePath = null;
+          this.speechPlayer?.cancel();
+          this.hideSubtitleOverlay();
+          if (!this.isDictationBusy() && this.currentStatus !== "error") {
+            this.setStatus("idle");
+          }
+          new Notice("Read-aloud interrupted by voice.");
+        },
+        onDowngrade: (decision) => {
+          this.lastBargeInDecision = decision;
+          if (decision.reason === "native-aec-inactive" && !this.aecDowngradeNotified) {
+            this.aecDowngradeNotified = true;
+            new Notice(
+              "Native echo cancellation is inactive on the current audio device; hands-free barge-in downgraded to manual stop.",
+            );
+          }
+        },
+        onError: () => {
+          // Optional hands-free barge-in degrades quietly to manual stop if mic capture is unavailable.
+        },
+      });
+    }
+    return this.bargeInMonitor;
+  }
+
+  private handlePlaybackStateChange(state: PlaybackQueueState): void {
+    if (state === "playing") {
+      this.setStatus("speaking");
+      if (this.subtitleRoleEl?.getText() === "Read-aloud paused") {
+        this.subtitleRoleEl.setText("Reading aloud");
+      }
+      this.updateSubtitlePlaybackControls(true, false);
+      void this.syncBargeInForPlaybackState("playing");
+      return;
+    }
+
+    if (state === "paused") {
+      void this.syncBargeInForPlaybackState("paused");
+      this.setStatus("speaking", "Read-aloud paused");
+      this.subtitleRoleEl?.setText("Read-aloud paused");
+      this.updateSubtitlePlaybackControls(true, true);
+      return;
+    }
+
+    void this.syncBargeInForPlaybackState(state);
+    this.readingNotePath = null;
+    this.updateSubtitlePlaybackControls(false, false);
+    if (!this.isDictationBusy() && this.currentStatus !== "error") {
+      this.setStatus("idle");
+      this.hideSubtitleOverlay();
+    }
+  }
+
+  private async syncBargeInForPlaybackState(state: PlaybackQueueState): Promise<void> {
+    const epoch = ++this.bargeInStateEpoch;
+    if (state !== "playing") {
+      await this.bargeInMonitor?.stop();
+      return;
+    }
+
+    const effectiveTts = this.getEffectiveTtsEngine();
+    const usesSystemTts =
+      effectiveTts === "system" || !this.speechPlayer?.hasRegisteredEngine(effectiveTts);
+
+    if (
+      usesSystemTts ||
+      this.settings.bargeInMode === "manual" ||
+      !this.capabilities.allowLocalWasmModels
+    ) {
+      this.lastBargeInDecision = resolveBargeInPolicy({
+        requestedMode: this.settings.bargeInMode,
+        usesSystemTts,
+        isMobile: this.capabilities.isMobile,
+        isSafari: Platform.isSafari,
+        nativeAecActive: false,
+      });
+      await this.bargeInMonitor?.stop();
+      return;
+    }
+
+    const manager = this.ensureDesktopModelManager();
+    if (!manager) {
+      await this.bargeInMonitor?.stop();
+      return;
+    }
+
+    const status = await manager.checkStatus().catch(() => null);
+    if (epoch !== this.bargeInStateEpoch || this.speechPlayer?.state !== "playing") {
+      return;
+    }
+    if (!status || !status.vadReady || !status.wasmReady) {
+      await this.bargeInMonitor?.stop();
+      return;
+    }
+
+    const monitor = this.ensureBargeInMonitor();
+    if (!monitor) {
+      return;
+    }
+
+    try {
+      const res = await monitor.start({
+        bargeInMode: this.settings.bargeInMode,
+        usesSystemTts: false,
+        isSafari: Platform.isSafari,
+        isMobile: this.capabilities.isMobile,
+      });
+      if (epoch !== this.bargeInStateEpoch || this.speechPlayer?.state !== "playing") {
+        await monitor.stop();
+        return;
+      }
+      this.lastBargeInDecision = {
+        policy: res.activePolicy,
+        reason: res.reason,
+        allowHandsFreeBargeIn: res.activePolicy === "auto",
+      };
+    } catch {
+      await monitor.stop();
+    }
+  }
+
+  private ensureOfflineDictationSession(): OfflineDictationSession | null {
+    const workerClient = this.ensureSherpaWorkerClient();
+    if (!workerClient) {
+      return null;
+    }
+
     if (!this.offlineSession) {
       this.offlineSession = new OfflineDictationSession({
-        workerClient: this.workerClient,
+        workerClient,
         endpointPolicy: {
           silenceMs: this.settings.endpointSilenceMs,
         },
@@ -561,7 +1008,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         break;
       case "idle":
         this.listening = false;
-        if (!this.speechPlayer?.isSpeaking && this.currentStatus !== "error") {
+        if (!this.speechPlayer?.isActive && this.currentStatus !== "error") {
           this.setStatus("idle");
         }
         break;
@@ -612,7 +1059,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     };
 
     this.registerDomEvent(item, "pointerdown", (ev: PointerEvent) => {
-      if (ev.button !== 0 || this.speechPlayer?.isSpeaking) {
+      if (ev.button !== 0 || this.speechPlayer?.isActive) {
         return;
       }
       if (this.settings.dictationMode === "push-to-talk" && !this.isDictationBusy()) {
@@ -626,7 +1073,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.registerDomEvent(window, "blur", releasePointerHold);
 
     this.registerDomEvent(item, "click", () => {
-      if (this.speechPlayer?.isSpeaking) {
+      if (this.speechPlayer?.isActive) {
         this.stopReadAloud();
         return;
       }
@@ -641,7 +1088,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     if (this.subtitleOverlayEl) {
       this.subtitleOverlayEl.remove();
       this.subtitleOverlayEl = null;
+      this.subtitleCardEl = null;
       this.subtitleRoleEl = null;
+      this.subtitleControlsEl = null;
+      this.subtitlePauseBtnEl = null;
       this.subtitleTextEl = null;
     }
     const body = targetDoc.body;
@@ -650,9 +1100,74 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
     const overlay = body.createDiv({ cls: "vm-subtitle-overlay vm-subtitle-hidden" });
     const card = overlay.createDiv({ cls: "vm-subtitle-card" });
-    this.subtitleRoleEl = card.createDiv({ cls: "vm-subtitle-role" });
+    const header = card.createDiv({ cls: "vm-subtitle-header" });
+    this.subtitleRoleEl = header.createSpan({ cls: "vm-subtitle-role" });
+
+    const controls = header.createDiv({ cls: "vm-subtitle-controls vm-subtitle-hidden" });
+    const pauseBtn = controls.createEl("button", {
+      cls: "vm-subtitle-btn",
+      text: "Pause",
+    });
+    pauseBtn.type = "button";
+    const nextBtn = controls.createEl("button", {
+      cls: "vm-subtitle-btn",
+      text: "Next",
+    });
+    nextBtn.type = "button";
+    const stopBtn = controls.createEl("button", {
+      cls: "vm-subtitle-btn",
+      text: "Stop",
+    });
+    stopBtn.type = "button";
+
+    pauseBtn.addEventListener("click", (ev: MouseEvent) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.togglePauseReadAloud();
+    });
+    nextBtn.addEventListener("click", (ev: MouseEvent) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.skipReadAloudSentence();
+    });
+    stopBtn.addEventListener("click", (ev: MouseEvent) => {
+      ev.preventDefault();
+      ev.stopPropagation();
+      this.stopReadAloud();
+    });
+
     this.subtitleTextEl = card.createDiv({ cls: "vm-subtitle-text" });
+    this.subtitleCardEl = card;
+    this.subtitleControlsEl = controls;
+    this.subtitlePauseBtnEl = pauseBtn;
     this.subtitleOverlayEl = overlay;
+    this.applySubtitleCardModifiers();
+  }
+
+  private applySubtitleCardModifiers(): void {
+    if (!this.subtitleCardEl) {
+      return;
+    }
+    for (const size of ["small", "medium", "large"] as const) {
+      this.subtitleCardEl.removeClass(`vm-subtitle-size-${size}`);
+    }
+    for (const width of ["narrow", "medium", "wide"] as const) {
+      this.subtitleCardEl.removeClass(`vm-subtitle-width-${width}`);
+    }
+    this.subtitleCardEl.addClass(`vm-subtitle-size-${this.settings.subtitleFontSize}`);
+    this.subtitleCardEl.addClass(`vm-subtitle-width-${this.settings.subtitleWidth}`);
+  }
+
+  private updateSubtitlePlaybackControls(visible: boolean, isPaused: boolean): void {
+    if (!this.subtitleControlsEl || !this.subtitlePauseBtnEl) {
+      return;
+    }
+    if (visible) {
+      this.subtitleControlsEl.removeClass("vm-subtitle-hidden");
+      this.subtitlePauseBtnEl.setText(isPaused ? "Resume" : "Pause");
+    } else {
+      this.subtitleControlsEl.addClass("vm-subtitle-hidden");
+    }
   }
 
   private setStatus(next: VoiceStatusKind, labelOverride?: string): void {
@@ -667,7 +1182,12 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.statusLabelEl.setText(labelOverride ?? STATUS_LABEL_MAP[next]);
   }
 
-  private showSubtitleOverlay(role: string, text: string, autoHideMs?: number): void {
+  private showSubtitleOverlay(
+    role: string,
+    text: string,
+    autoHideMs?: number,
+    showReadAloudControls = false,
+  ): void {
     if (!this.settings.enableSubtitleOverlay) {
       return;
     }
@@ -678,8 +1198,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
     this.clearSubtitleHideTimer();
+    this.applySubtitleCardModifiers();
     this.subtitleRoleEl?.setText(role);
     this.subtitleTextEl?.setText(text);
+    this.updateSubtitlePlaybackControls(
+      showReadAloudControls && Boolean(this.speechPlayer?.isActive),
+      Boolean(this.speechPlayer?.isPaused),
+    );
     this.subtitleOverlayEl.removeClass("vm-subtitle-visible");
     this.subtitleOverlayEl.removeClass("vm-subtitle-hidden");
     this.subtitleOverlayEl.addClass("vm-subtitle-visible");
@@ -694,6 +1219,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   private hideSubtitleOverlay(): void {
     this.clearSubtitleHideTimer();
+    this.updateSubtitlePlaybackControls(false, false);
     if (!this.subtitleOverlayEl) {
       return;
     }
@@ -709,7 +1235,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       if (this.offlineSession && this.offlineSession.state !== "idle") {
         await this.offlineSession.stop({ flush: false });
       }
-      if (!this.speechPlayer?.isSpeaking && this.currentStatus !== "error") {
+      if (!this.speechPlayer?.isActive && this.currentStatus !== "error") {
         this.setStatus("idle");
         this.hideSubtitleOverlay();
       }
@@ -730,7 +1256,18 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
-    const effectiveAsr = resolveEffectiveAsrEngine(this.settings.asrEngine, this.capabilities);
+    if (
+      this.capabilities.isMobile &&
+      !this.settings.allowCloudFallbackOnMobile &&
+      this.settings.asrEngine !== "system" &&
+      isCloudAsrEngine(this.settings.asrEngine)
+    ) {
+      new Notice(
+        "Cloud speech recognition is disabled on mobile by privacy settings; using system speech recognition.",
+      );
+    }
+
+    const effectiveAsr = this.getEffectiveAsrEngine();
     const mode = modeOverride ?? this.settings.dictationMode;
 
     if (effectiveAsr === "sensevoice-wasm") {
@@ -745,7 +1282,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
-    this.startBrowserSpeechRecognitionFallback();
+    await this.startBrowserSpeechRecognitionFallback();
   }
 
   private async startOfflineSenseVoiceDictation(
@@ -791,8 +1328,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         return;
       }
 
-      // Pause active read-aloud before capturing microphone input to prevent echo loops.
-      this.speechPlayer?.cancel();
+      // Stop active read-aloud and release any AEC barge-in mic capture before opening dictation mic.
+      this.stopReadAloudSilently();
+      if (this.bargeInMonitor) {
+        await this.bargeInMonitor.stop();
+      }
+      if (startEpoch !== this.dictationStartEpoch || (fromPointerHold && !this.pointerHoldActive)) {
+        return;
+      }
 
       try {
         await session.start(mode);
@@ -821,7 +1364,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
   }
 
-  private startBrowserSpeechRecognitionFallback(): void {
+  private async startBrowserSpeechRecognitionFallback(): Promise<void> {
     const win = activeWindow as SpeechRecognitionWindow;
     const RecognitionCtor = win.SpeechRecognition ?? win.webkitSpeechRecognition;
     if (!RecognitionCtor) {
@@ -833,90 +1376,105 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
-    this.speechPlayer?.cancel();
-
-    const recognition = new RecognitionCtor();
-    recognition.lang = this.settings.dictationLanguage;
-    recognition.continuous = this.settings.dictationMode !== "single";
-    recognition.interimResults = true;
-
-    const replacer = createAsrReplacer(this.settings.asrReplacements);
-
-    recognition.onresult = (event) => {
-      let interimText = "";
-      let finalText = "";
-
-      for (let i = event.resultIndex; i < event.results.length; i += 1) {
-        const result = event.results[i];
-        const transcript = result?.[0]?.transcript ?? "";
-        if (!transcript) {
-          continue;
-        }
-        if (result?.isFinal) {
-          finalText += transcript;
-        } else {
-          interimText += transcript;
-        }
-      }
-
-      if (interimText.trim()) {
-        this.showSubtitleOverlay("Dictating", interimText.trim());
-      }
-
-      if (finalText.trim()) {
-        const committed = replacer(finalText).trim();
-        if (committed) {
-          this.commitDictatedText(committed);
-          this.showSubtitleOverlay("Inserted", committed, 2200);
-        }
-      }
-    };
-
-    recognition.onerror = (event) => {
-      this.listening = false;
-      this.recognitionErrored = true;
-      this.activeRecognition = null;
-      this.setStatus("error");
-      this.hideSubtitleOverlay();
-      if (!this.capabilities.isMobile && event.error === "network") {
-        new Notice(
-          "Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for 100% offline dictation.",
-          7000,
-        );
-        return;
-      }
-      new Notice(`Voice dictation error: ${event.error}.`);
-    };
-
-    recognition.onend = () => {
-      if (this.activeRecognition === recognition) {
-        this.activeRecognition = null;
-      }
-      this.listening = false;
-      if (this.recognitionErrored) {
-        return;
-      }
-      if (!this.speechPlayer?.isSpeaking) {
-        this.setStatus("idle");
-      }
-    };
+    const startEpoch = ++this.dictationStartEpoch;
+    this.startingDictation = true;
 
     try {
-      this.activeRecognition = recognition;
-      this.listening = true;
-      this.recognitionErrored = false;
-      this.setStatus("listening");
-      this.showSubtitleOverlay("Dictating", "Listening...");
-      recognition.start();
-      new Notice("Voice dictation started.");
-    } catch (err) {
-      this.activeRecognition = null;
-      this.listening = false;
-      this.recognitionErrored = true;
-      this.setStatus("error");
-      this.hideSubtitleOverlay();
-      const message = redactSecrets(err instanceof Error ? err.message : String(err));
-      new Notice(`Could not start voice dictation: ${message}`);
+      this.stopReadAloudSilently();
+      if (this.bargeInMonitor) {
+        await this.bargeInMonitor.stop();
+      }
+      if (startEpoch !== this.dictationStartEpoch) {
+        return;
+      }
+
+      const recognition = new RecognitionCtor();
+      recognition.lang = this.settings.dictationLanguage;
+      recognition.continuous = this.settings.dictationMode !== "single";
+      recognition.interimResults = true;
+
+      const replacer = createAsrReplacer(this.settings.asrReplacements);
+
+      recognition.onresult = (event) => {
+        let interimText = "";
+        let finalText = "";
+
+        for (let i = event.resultIndex; i < event.results.length; i += 1) {
+          const result = event.results[i];
+          const transcript = result?.[0]?.transcript ?? "";
+          if (!transcript) {
+            continue;
+          }
+          if (result?.isFinal) {
+            finalText += transcript;
+          } else {
+            interimText += transcript;
+          }
+        }
+
+        if (interimText.trim()) {
+          this.showSubtitleOverlay("Dictating", interimText.trim());
+        }
+
+        if (finalText.trim()) {
+          const committed = replacer(finalText).trim();
+          if (committed) {
+            this.commitDictatedText(committed);
+            this.showSubtitleOverlay("Inserted", committed, 2200);
+          }
+        }
+      };
+
+      recognition.onerror = (event) => {
+        this.listening = false;
+        this.recognitionErrored = true;
+        this.activeRecognition = null;
+        this.setStatus("error");
+        this.hideSubtitleOverlay();
+        if (!this.capabilities.isMobile && event.error === "network") {
+          new Notice(
+            "Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for 100% offline dictation.",
+            7000,
+          );
+          return;
+        }
+        new Notice(`Voice dictation error: ${event.error}.`);
+      };
+
+      recognition.onend = () => {
+        if (this.activeRecognition === recognition) {
+          this.activeRecognition = null;
+        }
+        this.listening = false;
+        if (this.recognitionErrored) {
+          return;
+        }
+        if (!this.speechPlayer?.isActive) {
+          this.setStatus("idle");
+        }
+      };
+
+      try {
+        this.activeRecognition = recognition;
+        this.listening = true;
+        this.recognitionErrored = false;
+        this.setStatus("listening");
+        this.showSubtitleOverlay("Dictating", "Listening...");
+        recognition.start();
+        new Notice("Voice dictation started.");
+      } catch (err) {
+        this.activeRecognition = null;
+        this.listening = false;
+        this.recognitionErrored = true;
+        this.setStatus("error");
+        this.hideSubtitleOverlay();
+        const message = redactSecrets(err instanceof Error ? err.message : String(err));
+        new Notice(`Could not start voice dictation: ${message}`);
+      }
+    } finally {
+      if (this.dictationStartEpoch === startEpoch) {
+        this.startingDictation = false;
+      }
     }
   }
 
@@ -935,7 +1493,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         // Ignore stop errors if recognition already ended.
       }
     }
-    if (!this.speechPlayer?.isSpeaking && this.currentStatus !== "idle") {
+    if (!this.speechPlayer?.isActive && this.currentStatus !== "idle") {
       this.setStatus("idle");
     }
     this.hideSubtitleOverlay();
@@ -966,7 +1524,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     new Notice("No active editor or text input found for dictated text.");
   }
 
-  private readSelectionOrNoteAloud(): void {
+  private async readSelectionOrNoteAloud(): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.editor) {
       new Notice("Open a Markdown note to read aloud.");
@@ -983,6 +1541,43 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
+    const startEpoch = ++this.readAloudStartEpoch;
+    if (
+      this.capabilities.isMobile &&
+      !this.settings.allowCloudFallbackOnMobile &&
+      isCloudTtsEngine(this.settings.ttsEngine)
+    ) {
+      new Notice(
+        "Cloud speech synthesis is disabled on mobile by privacy settings; using system speech synthesis.",
+      );
+    }
+    const effectiveTts = this.getEffectiveTtsEngine();
+
+    if (effectiveTts === "vits-wasm") {
+      const manager = this.ensureDesktopModelManager();
+      if (!manager) {
+        new Notice("Local offline VITS speech synthesis is only available on desktop.");
+        return;
+      }
+      let status: DictationStackStatus;
+      try {
+        status = await manager.checkStatus();
+      } catch (err) {
+        const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+        new Notice(`Could not verify external model cache: ${msg}`);
+        return;
+      }
+      if (startEpoch !== this.readAloudStartEpoch) {
+        return;
+      }
+      if (!status.vitsReady) {
+        new Notice(
+          "Optional local VITS model is not installed yet. Download it in Voice Mode settings or switch speech engine to system.",
+        );
+        return;
+      }
+    }
+
     this.dictationStartEpoch += 1;
     this.startingDictation = false;
     this.pointerHoldActive = false;
@@ -993,40 +1588,74 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.stopBrowserRecognition();
     }
 
+    this.syncSpeechPlayerEngines();
     this.overflowNotified = false;
     this.speechPlayer?.cancel();
+    this.readingNotePath = view.file?.path ?? null;
     const queued = this.speechPlayer?.speakSentences(sentences) ?? 0;
     if (queued > 0) {
       new Notice(`Reading ${queued} ${queued === 1 ? "sentence" : "sentences"} aloud.`);
     }
   }
 
+  private togglePauseReadAloud(): void {
+    if (!this.speechPlayer?.isActive) {
+      new Notice("Read-aloud is not currently active.");
+      return;
+    }
+    this.speechPlayer.togglePause();
+  }
+
+  private skipReadAloudSentence(): void {
+    if (!this.speechPlayer?.isActive) {
+      new Notice("Read-aloud is not currently active.");
+      return;
+    }
+    this.speechPlayer.skipCurrent();
+  }
+
+  private stopReadAloudSilently(): void {
+    this.readAloudStartEpoch += 1;
+    this.readingNotePath = null;
+    this.speechPlayer?.cancel();
+    void this.bargeInMonitor?.stop();
+    this.hideSubtitleOverlay();
+    if (!this.isDictationBusy() && this.currentStatus !== "error") {
+      this.setStatus("idle");
+    }
+  }
+
   private stopReadAloud(): void {
-    if (!this.speechPlayer?.isSpeaking) {
+    if (!this.speechPlayer?.isActive) {
       new Notice("Read-aloud is not currently playing.");
       return;
     }
-    this.speechPlayer.cancel();
-    this.hideSubtitleOverlay();
-    this.setStatus("idle");
+    this.stopReadAloudSilently();
     new Notice("Read-aloud stopped.");
   }
 
   private async showRuntimeStatusNotice(): Promise<void> {
-    const effectiveAsr = resolveEffectiveAsrEngine(this.settings.asrEngine, this.capabilities);
-    const effectiveTts = resolveEffectiveTtsEngine(this.settings.ttsEngine, this.capabilities);
-    const bargeIn = resolveBargeInPolicy({
-      isMobile: this.capabilities.isMobile,
-      isSafari: Platform.isSafari,
-      nativeAecActive: false,
-    });
+    const effectiveAsr = this.getEffectiveAsrEngine();
+    const effectiveTts = this.getEffectiveTtsEngine();
+    const usesSystemTts =
+      effectiveTts === "system" || !this.speechPlayer?.hasRegisteredEngine(effectiveTts);
+    const bargeIn =
+      this.lastBargeInDecision ??
+      resolveBargeInPolicy({
+        requestedMode: this.settings.bargeInMode,
+        usesSystemTts,
+        isMobile: this.capabilities.isMobile,
+        isSafari: Platform.isSafari,
+        nativeAecActive: false,
+      });
 
     let wasmLabel = "disabled (mobile OOM safeguard)";
     if (this.capabilities.allowLocalWasmModels) {
       const status = await this.getModelStatus().catch(() => null);
+      const vitsLabel = status?.vitsReady ? ", VITS ready" : "";
       wasmLabel = status?.ready
-        ? `ready (SHA256 verified, budget ${this.capabilities.maxLocalModelMemoryMb} MB)`
-        : `not downloaded (budget ${this.capabilities.maxLocalModelMemoryMb} MB)`;
+        ? `ready (SHA256 verified${vitsLabel}, budget ${this.capabilities.maxLocalModelMemoryMb} MB)`
+        : `not downloaded${vitsLabel} (budget ${this.capabilities.maxLocalModelMemoryMb} MB)`;
     }
 
     const secretLabel = this.secretStore.available

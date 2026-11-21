@@ -45,6 +45,16 @@
 - **单句定稿延迟与 53.1s 连续多段听写**：冷启动加载隔离 `MEMFS` Worker（`Silero VAD` + `SenseVoice int8`）耗时 **`769 ms`**；`4.8 s` 单句音频定稿延迟 **`1,245 ms`**（严守 `<= 5s` 语音 `< 1,500 ms` 门禁）；`53.1 s` 六段中英混说语料流式馈入总耗时 **`13,414 ms`**（`RTF = 0.253`），`640 ms` 环形预卷缓冲确保第 1–6 段段首零吞字，设置页配置的 3 条多别名纠错词表（`Obsidian`、`SenseVoice`、`[[双链笔记]]`）**`3/3`（100%）** 准确替换并注入 `M0-Test-Note.md`；`editor-bridge.ts` 已正式合入内存态合成 `ClipboardEvent("paste")` 以兼容 Lexical/ProseMirror 侧栏。
 - **物理扬声器 → 麦克风声学闭环**：在真实 Obsidian `1.15.1` 内调用 `toggleDictation("push-to-talk")` 开启 `48k->16k AudioWorklet` 真实麦克风采集，经 MacBook Pro 扬声器外放中文语音并松手冲刷后，准确完成离线转写、同音词替换（`黑曜石 -> Obsidian`）与 CM6 光标落盘，会话与状态条干净归位 `idle`。
 
+### 1.3 M2 朗读降噪、字幕对比度、切笔记瞬停与原生 AEC3 外放语音打断真机验收记录（2026-11-22 / Obsidian `1.15.1` · Electron `43.8.9`）
+
+- **打包与自动化门禁**：`pnpm run check:all` 全绿（**115 项单测**全过、`eslint --max-warnings 0 .` 零警告、`main.js = 213.11 KB < 1,024 KB`、`check:release` 5/5 通过）。
+- **长笔记 Markdown / 5×5 管道表格降噪与播控交互**：对包含 YAML Frontmatter、三级标题、TypeScript 代码块、`$$` 数学块、裸 URL、Callout、Wikilink 与 5×5 管道表格的真实笔记启动朗读，首句与全队列 **0 次**念出 Frontmatter 键名、代码符号、`https://` 或 `| --- |` 分隔符；`pause-resume-read-aloud` 与 `skip-read-aloud-sentence` 状态流转准确；执行 `stop-read-aloud` 停止队列并隐藏字幕耗时 **`6.4–10.9 ms`（`< 100 ms`）**，切换工作区标签页自动触发停止（含 Obsidian 工作区激活防抖全链路耗时 `96.8–207.1 ms`，事件触发后内部队列取消 `< 10 ms`）。
+- **悬浮字幕字号/宽度档位与双主题 WCAG 对比度**：切至大字号（`large`）+ 窄宽（`narrow`，`420px`）档位并注入超长中英与 URL 字符串，实测自动折行零横向溢出（`scrollWidth <= clientWidth`）；`getComputedStyle` 实测浅色主题文本对比度 **`15.91:1`**、深色主题对比度 **`12.19:1`**（均远高于 WCAG AA `4.5:1` 门禁）。
+- **本地离线 `vits-wasm` 连续 3 分钟（180 秒）外放零自打断与 `< 600 ms` 原生 AEC3 语音打断**：
+  - `system` TTS 下自动锁定 `bargeInMode=manual`（`0` 开麦）；`vits-wasm`（`116.06 MB` 外部缓存已校验）在 `bargeInMode=manual` 下外放 `0` 开麦、`0` 自打断；
+  - 切至 `bargeInMode=detect` 后，独立轻量 `bargeInWorkerClient`（仅挂载 `1.8 MB` `Silero VAD`，每 `25.6 s` 非人声自动刷新环形缓冲与隐状态）实测探测原生 AEC3 激活并进入 `activePolicy="auto"`；MacBook Pro 扬声器连续外放朗读 **`180,005 ms`（3 分钟 / 11 句中文长句 / 实时评估 `2,811` 个 64 ms 帧，残差峰值 `RMS = 0.011621`，`vadPositiveChunks = 0`）** 全程 **`0` 次自打断**；
+  - 压测满 180 秒后立即由外部语音经物理扬声器→麦克风打断正在外放的 `vits-wasm`，从外部人声到达麦克风至朗读队列中止 + 字幕隐藏 + 麦克风轨道释放实测耗时 **`66 ms`（首次短时冒烟实测 `370 ms`，均严守 `< 600 ms` 门禁）**。
+
 ---
 
 ## 2. 发版前四项真机声学必过门禁（M3 → M4 正式发版强制阻断）

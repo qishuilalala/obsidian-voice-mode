@@ -11,6 +11,7 @@ export {
 export {
   probeTrackAec,
   resolveBargeInPolicy,
+  type BargeInMode,
   type BargeInPolicy,
   type BargeInDowngradeReason,
   type AecProbeResult,
@@ -83,3 +84,29 @@ export {
   type StopDictationOptions,
   type OfflineDictationSessionOptions,
 } from './dictation-session.ts'
+
+export {
+  VITS_DEFAULT_SPEAKER_ID,
+  VITS_MIN_RATE,
+  VITS_MAX_RATE,
+  resolveVitsSpeakerId,
+  clampVitsRate,
+  VitsWasmTtsEngine,
+  type VitsWasmTtsEngineOptions,
+} from './vits-tts-engine.ts'
+
+export {
+  DEFAULT_BARGE_IN_CHUNK_SAMPLES,
+  DEFAULT_BARGE_IN_MIN_RMS,
+  DEFAULT_BARGE_IN_CONFIRM_CHUNKS,
+  computeChunkRms,
+  createBargeInMicCapture,
+  AecBargeInMonitor,
+  type BargeInMonitorState,
+  type BargeInCaptureHandle,
+  type BargeInCaptureFactory,
+  type BargeInStartOptions,
+  type BargeInStartResult,
+  type BargeInEvent,
+  type AecBargeInMonitorOptions,
+} from './barge-in-monitor.ts'

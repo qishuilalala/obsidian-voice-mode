@@ -138,6 +138,8 @@ export interface DictationStackStatus {
   readonly vadReady: boolean;
   readonly senseVoiceReady: boolean;
   readonly wasmReady: boolean;
+  readonly vitsReady: boolean;
+  readonly vitsVerifiedBytes: number;
   readonly verifiedFiles: readonly VerifiedAssetRecord[];
   readonly missingOrCorruptFiles: readonly string[];
   readonly totalVerifiedBytes: number;
@@ -453,6 +455,30 @@ export class DesktopModelManager {
     const senseVoiceReady = await verifyGroup(senseVoiceEntries);
     const wasmReady = await verifyGroup(wasmEntries);
 
+    let vitsReady = false;
+    let vitsVerifiedBytes = 0;
+    if (this.vitsBundle) {
+      const vitsEntries = this.buildBundleLocalEntries(this.vitsBundle);
+      let allVitsOk = true;
+      for (const entry of vitsEntries) {
+        const result = await this.verifySingleLocalFile(
+          cacheDir,
+          entry.relPath,
+          entry.sha256,
+          entry.bytes,
+        );
+        if (result.updatedCache) {
+          indexDirty = true;
+        }
+        if (result.record) {
+          vitsVerifiedBytes += result.record.bytes;
+        } else {
+          allVitsOk = false;
+        }
+      }
+      vitsReady = allVitsOk && wasmReady;
+    }
+
     if (indexDirty) {
       await this.persistVerificationIndex(cacheDir);
     }
@@ -468,6 +494,8 @@ export class DesktopModelManager {
       vadReady,
       senseVoiceReady,
       wasmReady,
+      vitsReady,
+      vitsVerifiedBytes,
       verifiedFiles,
       missingOrCorruptFiles,
       totalVerifiedBytes,
@@ -485,7 +513,39 @@ export class DesktopModelManager {
     if (this.activeDownload) {
       return this.activeDownload;
     }
-    const run = this.executeDownloadDictationStack(options).finally(() => {
+    const run = this.executeDownloadBundlesAndWasm(
+      [this.vadBundle, this.senseVoiceBundle],
+      "dictation-stack",
+      false,
+      options,
+    ).finally(() => {
+      if (this.activeDownload === run) {
+        this.activeDownload = null;
+      }
+    });
+    this.activeDownload = run;
+    return run;
+  }
+
+  /**
+   * Explicitly download, SHA256-verify, and atomically install the optional desktop offline
+   * VITS speech synthesis bundle (`csukuangfj/sherpa-onnx-vits-zh-ll` + `Silero VAD` + WASM).
+   */
+  downloadVitsStack(
+    options: DownloadDictationStackOptions = {},
+  ): Promise<DictationStackStatus> {
+    if (!this.vitsBundle) {
+      return Promise.reject(new Error("Local VITS speech model bundle is not configured."));
+    }
+    if (this.activeDownload) {
+      return this.activeDownload;
+    }
+    const run = this.executeDownloadBundlesAndWasm(
+      [this.vadBundle, this.vitsBundle],
+      "vits-stack",
+      true,
+      options,
+    ).finally(() => {
       if (this.activeDownload === run) {
         this.activeDownload = null;
       }
@@ -863,7 +923,10 @@ export class DesktopModelManager {
     }
   }
 
-  private async executeDownloadDictationStack(
+  private async executeDownloadBundlesAndWasm(
+    bundlesToFetch: readonly ModelDownloadBundleSpec[],
+    stackLabel: string,
+    requireVitsReady: boolean,
     options: DownloadDictationStackOptions,
   ): Promise<DictationStackStatus> {
     const { signal, onProgress } = options;
@@ -880,15 +943,14 @@ export class DesktopModelManager {
       this.wasmTarball.bytes ??
       this.wasmTarball.files.reduce((sum, item) => sum + (item.bytes ?? 0), 0);
 
-    const bundlesToFetch: readonly ModelDownloadBundleSpec[] = [
-      this.vadBundle,
-      this.senseVoiceBundle,
-    ];
     let overallTotalBytes = wasmEstimatedBytes;
     for (const bundle of bundlesToFetch) {
+      const bundleDeclared = (bundle as { totalBytes?: number }).totalBytes;
+      let fileSum = 0;
       for (const spec of bundle.files) {
-        overallTotalBytes += spec.bytes ?? 0;
+        fileSum += spec.bytes ?? 0;
       }
+      overallTotalBytes += fileSum > 0 ? fileSum : (bundleDeclared ?? 0);
     }
 
     let completedBytes = 0;
@@ -988,20 +1050,23 @@ export class DesktopModelManager {
 
     await this.persistVerificationIndex(cacheDir);
     const finalStatus = await this.checkStatus();
-    if (!finalStatus.ready) {
+    if (requireVitsReady ? !finalStatus.vitsReady : !finalStatus.ready) {
       throw new Error(
-        `Dictation stack verification failed after download (${finalStatus.missingOrCorruptFiles.join(", ")}).`,
+        `Model stack (${stackLabel}) verification failed after download (${finalStatus.missingOrCorruptFiles.join(", ") || "incomplete VITS files"}).`,
       );
     }
 
+    const verifiedTotal = requireVitsReady
+      ? finalStatus.vitsVerifiedBytes
+      : finalStatus.totalVerifiedBytes;
     onProgress?.({
       phase: "complete",
-      bundleId: "dictation-stack",
+      bundleId: stackLabel,
       file: "",
-      downloadedBytes: finalStatus.totalVerifiedBytes,
-      totalBytes: finalStatus.totalVerifiedBytes,
-      overallDownloadedBytes: finalStatus.totalVerifiedBytes,
-      overallTotalBytes: finalStatus.totalVerifiedBytes,
+      downloadedBytes: verifiedTotal,
+      totalBytes: verifiedTotal,
+      overallDownloadedBytes: verifiedTotal,
+      overallTotalBytes: verifiedTotal,
       host: "local",
       percent: 100,
     });
