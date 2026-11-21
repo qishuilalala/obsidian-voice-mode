@@ -58,3 +58,28 @@ export {
   type WorkerErrorResponse,
   type WorkerResponse,
 } from './worker-protocol.ts'
+
+export { createSherpaWorkerScript, encodePcm16Wav } from './sherpa-worker-runtime.ts'
+
+export {
+  SherpaWorkerClient,
+  SherpaWorkerError,
+  type SherpaLoadableTarget,
+  type WorkerLike,
+  type SherpaWorkerClientOptions,
+} from './sherpa-worker-client.ts'
+
+export {
+  DICTATION_PRE_ROLL_MS,
+  DICTATION_PRE_ROLL_SAMPLES,
+  createBrowserMicCapture,
+  OfflineDictationSession,
+  type DictationMode,
+  type DictationSessionState,
+  type AudioCaptureOptions,
+  type AudioCaptureHandle,
+  type AudioCaptureFactory,
+  type FinalTranscriptInfo,
+  type StopDictationOptions,
+  type OfflineDictationSessionOptions,
+} from './dictation-session.ts'

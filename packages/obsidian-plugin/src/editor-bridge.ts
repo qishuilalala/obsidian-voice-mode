@@ -39,6 +39,8 @@ interface DomConstructorWindow extends Window {
   HTMLInputElement?: typeof HTMLInputElement;
   InputEvent?: typeof InputEvent;
   Event?: typeof Event;
+  DataTransfer?: typeof DataTransfer;
+  ClipboardEvent?: typeof ClipboardEvent;
 }
 
 function hasObsidianInstanceOf(el: Element): boolean {
@@ -175,6 +177,41 @@ function dispatchInsertInputEvent(
 }
 
 /**
+ * Attempt in-memory synthetic paste dispatch for virtualized rich-text editors
+ * (such as Lexical, ProseMirror, or TipTap `contenteditable` boxes) so framework
+ * state reconciliation and Undo/Redo stacks update cleanly without touching the OS clipboard.
+ */
+function tryDispatchSyntheticPaste(
+  el: HTMLElement,
+  text: string,
+  win: DomConstructorWindow | null,
+): boolean {
+  const DataTransferCtor =
+    win?.DataTransfer ??
+    (win === null && typeof DataTransfer === "function" ? DataTransfer : undefined);
+  const ClipboardEventCtor =
+    win?.ClipboardEvent ??
+    (win === null && typeof ClipboardEvent === "function" ? ClipboardEvent : undefined);
+  if (typeof DataTransferCtor !== "function" || typeof ClipboardEventCtor !== "function") {
+    return false;
+  }
+
+  try {
+    const dt = new DataTransferCtor();
+    dt.setData("text/plain", text);
+    const pasteEvt = new ClipboardEventCtor("paste", {
+      bubbles: true,
+      cancelable: true,
+      clipboardData: dt,
+    });
+    const notCancelled = el.dispatchEvent(pasteEvt);
+    return !notCancelled || pasteEvt.defaultPrevented;
+  } catch {
+    return false;
+  }
+}
+
+/**
  * Zero-coupling text insertion into any currently focused input outside CodeMirror 6
  * (such as sidebar AI / Copilot chat textareas, Shadow DOM inputs, same-origin iframe
  * inputs, search boxes, or contenteditable widgets) using the native value setter
@@ -230,6 +267,10 @@ export function insertIntoFocusedInput(
   }
 
   if (isEditableHtmlElement(active)) {
+    if (tryDispatchSyntheticPaste(active, cleanText, win)) {
+      return true;
+    }
+
     const selection = win?.getSelection ? win.getSelection() : null;
     if (selection && selection.rangeCount > 0) {
       const range = selection.getRangeAt(0);

@@ -20,6 +20,7 @@ const SENTENCE_CASE_BRANDS = [
   "DeepSeek",
   "Ollama",
   "SenseVoice",
+  "Silero",
   "VITS",
   "Whisper",
   "Copilot",
@@ -31,9 +32,11 @@ const SENTENCE_CASE_ACRONYMS = [
   "API",
   "ASR",
   "TTS",
+  "VAD",
   "BYOK",
   "LLM",
   "WASM",
+  "SHA256",
   "URL",
   "URI",
   "HTTP",
@@ -315,6 +318,7 @@ export default defineConfig([
     files: [
       "packages/voice-core/test/**/*.mjs",
       "packages/voice-browser/test/**/*.mjs",
+      "packages/obsidian-plugin/test/**/*.mjs",
     ],
     languageOptions: {
       ecmaVersion: 2022,

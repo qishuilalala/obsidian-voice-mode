@@ -1,6 +1,19 @@
-import { createAsrReplacer, redactSecrets } from "@voice-mode/core";
-import { resolveBargeInPolicy } from "@voice-mode/browser";
+import {
+  MODEL_BUNDLES,
+  buildMemfsSherpaGlue,
+  createAsrReplacer,
+  redactSecrets,
+} from "@voice-mode/core";
+import {
+  OfflineDictationSession,
+  SherpaWorkerClient,
+  createSherpaWorkerScript,
+  resolveBargeInPolicy,
+  type DictationMode,
+  type DictationSessionState,
+} from "@voice-mode/browser";
 import { MarkdownView, Notice, Platform, Plugin } from "obsidian";
+import { getVaultBasePath, openExternalDirectory } from "./desktop-fs.ts";
 import {
   extractReadableText,
   insertDictatedText,
@@ -8,6 +21,11 @@ import {
   isMarkdownEditorFocused,
   resolveDeepActiveElement,
 } from "./editor-bridge.ts";
+import {
+  DesktopModelManager,
+  type DictationStackStatus,
+  type ModelDownloadProgress,
+} from "./model-manager.ts";
 import {
   detectRuntimeCapabilities,
   resolveEffectiveAsrEngine,
@@ -29,7 +47,7 @@ import {
 } from "./settings-tab.ts";
 import { SpeechPlayer } from "./speech-player.ts";
 
-type VoiceStatusKind = "idle" | "listening" | "speaking" | "error";
+type VoiceStatusKind = "idle" | "listening" | "busy" | "speaking" | "error";
 
 interface BrowserSpeechRecognitionAlternative {
   readonly transcript: string;
@@ -75,6 +93,7 @@ interface SpeechRecognitionWindow extends Window {
 const STATUS_CLASS_MAP: Readonly<Record<VoiceStatusKind, string>> = {
   idle: "vm-is-idle",
   listening: "vm-is-listening",
+  busy: "vm-is-busy",
   speaking: "vm-is-speaking",
   error: "vm-is-error",
 };
@@ -82,9 +101,39 @@ const STATUS_CLASS_MAP: Readonly<Record<VoiceStatusKind, string>> = {
 const STATUS_LABEL_MAP: Readonly<Record<VoiceStatusKind, string>> = {
   idle: "Voice idle",
   listening: "Listening",
+  busy: "Transcribing",
   speaking: "Reading aloud",
   error: "Voice error",
 };
+
+/**
+ * Map a BCP-47 locale code to one of SenseVoice's 6 valid language identifiers
+ * (`auto`, `zh`, `en`, `ja`, `ko`, `yue`). Using `auto` for Chinese/English locales
+ * preserves seamless Mandarin + English code-switching within the same sentence.
+ */
+export function resolveSenseVoiceLanguage(locale: string): string {
+  const normalized = locale.trim().toLowerCase();
+  if (normalized.startsWith("ja")) {
+    return "ja";
+  }
+  if (normalized.startsWith("ko")) {
+    return "ko";
+  }
+  if (normalized === "yue" || normalized.startsWith("yue-") || normalized === "zh-hk") {
+    return "yue";
+  }
+  return "auto";
+}
+
+function isMicrophonePermissionError(err: unknown): boolean {
+  const name = err instanceof Error ? err.name : "";
+  const message = err instanceof Error ? err.message : String(err);
+  return (
+    name === "NotAllowedError" ||
+    name === "PermissionDeniedError" ||
+    /permission denied|not allowed/i.test(message)
+  );
+}
 
 export default class VoiceModePlugin extends Plugin implements VoiceModePluginHost {
   settings: VoiceModeSettings = createDefaultSettings();
@@ -95,6 +144,12 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   private secretStore: ObsidianSecretStore = new ObsidianSecretStore(null);
   private speechPlayer: SpeechPlayer | null = null;
+  private modelManager: DesktopModelManager | null = null;
+  private modelManagerConfigKey = "";
+  private workerClient: SherpaWorkerClient | null = null;
+  private offlineSession: OfflineDictationSession | null = null;
+  private downloadAbortController: AbortController | null = null;
+
   private statusBarEl: HTMLElement | null = null;
   private statusLabelEl: HTMLElement | null = null;
   private subtitleOverlayEl: HTMLElement | null = null;
@@ -103,6 +158,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private subtitleHideTimer: number | null = null;
   private activeRecognition: BrowserSpeechRecognition | null = null;
   private listening = false;
+  private startingDictation = false;
+  private dictationStartEpoch = 0;
+  private pointerHoldActive = false;
   private recognitionErrored = false;
   private overflowNotified = false;
   private currentStatus: VoiceStatusKind = "idle";
@@ -126,7 +184,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         onStateChange: (state) => {
           if (state === "playing") {
             this.setStatus("speaking");
-          } else if (!this.listening && this.currentStatus !== "error") {
+          } else if (!this.isDictationBusy() && this.currentStatus !== "error") {
             this.setStatus("idle");
             this.hideSubtitleOverlay();
           }
@@ -136,7 +194,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         },
         onEngineFallback: (requested) => {
           new Notice(
-            `Speech engine "${requested}" is not mounted in 0.1.0; falling back to system speech synthesis.`,
+            `Speech engine "${requested}" is scheduled for milestone M2; falling back to system speech synthesis.`,
           );
         },
         onDrop: () => {
@@ -161,14 +219,22 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.mountSubtitleOverlay(activeDocument);
 
     this.addRibbonIcon("mic", "Toggle voice dictation", () => {
-      this.toggleDictation();
+      void this.toggleDictation();
     });
 
     this.addCommand({
       id: "toggle-dictation",
       name: "Toggle voice dictation",
       callback: () => {
-        this.toggleDictation();
+        void this.toggleDictation();
+      },
+    });
+
+    this.addCommand({
+      id: "dictate-single-utterance",
+      name: "Dictate single utterance",
+      callback: () => {
+        void this.toggleDictation("single");
       },
     });
 
@@ -192,7 +258,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       id: "check-runtime-status",
       name: "Check voice runtime status",
       callback: () => {
-        this.showRuntimeStatusNotice();
+        void this.showRuntimeStatusNotice();
       },
     });
 
@@ -200,8 +266,24 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   }
 
   onunload(): void {
-    this.stopDictation();
+    this.dictationStartEpoch += 1;
+    this.startingDictation = false;
+    this.pointerHoldActive = false;
+    this.cancelModelDownload();
+    this.stopBrowserRecognition();
     this.clearSubtitleHideTimer();
+
+    if (this.offlineSession) {
+      void this.offlineSession.abort();
+      this.offlineSession = null;
+    }
+
+    if (this.workerClient) {
+      void this.workerClient.dispose();
+      this.workerClient = null;
+    }
+
+    this.modelManager = null;
 
     if (this.speechPlayer) {
       void this.speechPlayer.dispose();
@@ -222,13 +304,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   async loadSettings(): Promise<void> {
     const raw: unknown = await this.loadData();
-    this.settings = normalizeSettings(raw);
+    Object.assign(this.settings, normalizeSettings(raw));
   }
 
   async saveSettings(): Promise<void> {
-    const sanitized = stripSecretsFromSettings(this.settings);
-    this.settings = normalizeSettings(sanitized);
-    await this.saveData(sanitized);
+    const normalized = normalizeSettings(stripSecretsFromSettings(this.settings));
+    Object.assign(this.settings, normalized);
+    await this.saveData(stripSecretsFromSettings(this.settings));
 
     if (this.speechPlayer) {
       const effectiveTts = resolveEffectiveTtsEngine(this.settings.ttsEngine, this.capabilities);
@@ -240,9 +322,258 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       });
     }
 
+    const resolvedLanguage = resolveSenseVoiceLanguage(this.settings.dictationLanguage);
+
+    if (this.offlineSession) {
+      this.offlineSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
+      this.offlineSession.updateLanguage(resolvedLanguage);
+    }
+
+    if (this.workerClient) {
+      this.workerClient.updateModelConfig("asr-offline", {
+        language: resolvedLanguage,
+        useItn: true,
+      });
+      this.workerClient.updateIdleUnloadMs(this.resolveWorkerIdleUnloadMs());
+    }
+
     if (!this.settings.enableSubtitleOverlay) {
       this.hideSubtitleOverlay();
     }
+  }
+
+  getVaultBasePath(): string | null {
+    return getVaultBasePath(this.app.vault.adapter as { getBasePath?: () => string });
+  }
+
+  async getModelStatus(): Promise<DictationStackStatus | null> {
+    const manager = this.ensureDesktopModelManager();
+    if (!manager) {
+      return null;
+    }
+    return manager.checkStatus();
+  }
+
+  isDownloadingModels(): boolean {
+    return this.downloadAbortController !== null;
+  }
+
+  async startModelDownload(
+    onProgress?: (progress: ModelDownloadProgress) => void,
+  ): Promise<DictationStackStatus> {
+    const manager = this.ensureDesktopModelManager();
+    if (!manager) {
+      throw new Error("Local offline WASM models are only available on desktop.");
+    }
+    if (this.downloadAbortController) {
+      return manager.downloadDictationStack({
+        signal: this.downloadAbortController.signal,
+        onProgress,
+      });
+    }
+
+    const controller = new AbortController();
+    this.downloadAbortController = controller;
+    try {
+      const status = await manager.downloadDictationStack({
+        signal: controller.signal,
+        onProgress,
+      });
+      if (status.ready && this.settings.asrEngine === "system") {
+        this.settings.asrEngine = "sensevoice-wasm";
+        await this.saveSettings();
+        new Notice(
+          "Offline dictation models verified and ready. Switched recognition engine to SenseVoice WASM.",
+        );
+      } else if (status.ready) {
+        new Notice("Offline dictation models verified and ready.");
+      }
+      return status;
+    } finally {
+      if (this.downloadAbortController === controller) {
+        this.downloadAbortController = null;
+      }
+    }
+  }
+
+  cancelModelDownload(): void {
+    if (this.downloadAbortController) {
+      this.downloadAbortController.abort();
+      this.downloadAbortController = null;
+    }
+  }
+
+  async clearCachedModels(): Promise<void> {
+    const manager = this.ensureDesktopModelManager();
+    if (!manager) {
+      return;
+    }
+    this.dictationStartEpoch += 1;
+    this.startingDictation = false;
+    this.pointerHoldActive = false;
+    if (this.offlineSession && this.offlineSession.state !== "idle") {
+      await this.offlineSession.abort();
+    }
+    if (this.workerClient) {
+      await this.workerClient.unload();
+    }
+    await manager.clearCachedModels();
+    new Notice("Cleared cached offline speech models outside the vault.");
+  }
+
+  async openModelCacheFolder(): Promise<void> {
+    const manager = this.ensureDesktopModelManager();
+    if (!manager) {
+      return;
+    }
+    await openExternalDirectory(manager.resolveCacheDir(), { isDesktop: Platform.isDesktop });
+  }
+
+  private resolveWorkerIdleUnloadMs(): number {
+    return this.settings.workerIdleUnloadMinutes > 0
+      ? this.settings.workerIdleUnloadMinutes * 60_000
+      : 0;
+  }
+
+  private ensureDesktopModelManager(): DesktopModelManager | null {
+    if (!this.capabilities.allowLocalWasmModels || !Platform.isDesktop) {
+      return null;
+    }
+    const vaultBasePath = this.getVaultBasePath();
+    const configKey = JSON.stringify([
+      this.settings.customModelCacheDir,
+      this.settings.modelMirrorHost,
+      vaultBasePath,
+    ]);
+    if (this.modelManager && this.modelManagerConfigKey === configKey) {
+      return this.modelManager;
+    }
+
+    if (this.workerClient) {
+      void this.workerClient.dispose();
+      this.workerClient = null;
+      this.offlineSession = null;
+    }
+
+    this.modelManagerConfigKey = configKey;
+    this.modelManager = new DesktopModelManager({
+      customCacheDir: this.settings.customModelCacheDir,
+      vaultBasePath,
+      preferredModelHost: this.settings.modelMirrorHost,
+      vitsBundle: MODEL_BUNDLES["vits-zh-ll"],
+    });
+    return this.modelManager;
+  }
+
+  private ensureOfflineDictationSession(): OfflineDictationSession | null {
+    const manager = this.ensureDesktopModelManager();
+    if (!manager) {
+      return null;
+    }
+
+    if (!this.workerClient) {
+      this.workerClient = new SherpaWorkerClient({
+        createWorkerSource: async () => {
+          const glue = await manager.readWasmGlueTexts();
+          return createSherpaWorkerScript(buildMemfsSherpaGlue(glue));
+        },
+        loadModelBinaries: (target, includeWasm) => manager.readTargetBinaries(target, includeWasm),
+        modelConfigs: {
+          "asr-offline": {
+            language: resolveSenseVoiceLanguage(this.settings.dictationLanguage),
+            useItn: true,
+          },
+        },
+        idleUnloadMs: this.resolveWorkerIdleUnloadMs(),
+      });
+    }
+
+    if (!this.offlineSession) {
+      this.offlineSession = new OfflineDictationSession({
+        workerClient: this.workerClient,
+        endpointPolicy: {
+          silenceMs: this.settings.endpointSilenceMs,
+        },
+        language: resolveSenseVoiceLanguage(this.settings.dictationLanguage),
+        onStateChange: (state) => {
+          this.handleOfflineStateChange(state);
+        },
+        onSpeechActivity: (isSpeech) => {
+          if (this.offlineSession?.state === "listening") {
+            this.showSubtitleOverlay(
+              "Offline dictation",
+              isSpeech ? "Listening (speech detected)..." : "Listening...",
+            );
+          }
+        },
+        onFinalTranscript: (rawText) => {
+          const replacer = createAsrReplacer(this.settings.asrReplacements);
+          const committed = replacer(rawText).trim();
+          if (committed) {
+            this.commitDictatedText(committed);
+            this.showSubtitleOverlay("Inserted", committed, 2400);
+          }
+        },
+        onError: (err) => {
+          this.listening = false;
+          this.setStatus("error");
+          this.hideSubtitleOverlay();
+          if (isMicrophonePermissionError(err)) {
+            new Notice(
+              "Microphone permission was denied. Grant microphone access to Obsidian in your OS privacy settings and try again.",
+              7000,
+            );
+            return;
+          }
+          const message = redactSecrets(err.message || String(err));
+          new Notice(`Offline dictation error: ${message}`);
+        },
+      });
+    }
+
+    this.offlineSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
+    this.offlineSession.updateLanguage(resolveSenseVoiceLanguage(this.settings.dictationLanguage));
+    return this.offlineSession;
+  }
+
+  private handleOfflineStateChange(state: DictationSessionState): void {
+    switch (state) {
+      case "starting":
+        this.listening = true;
+        this.setStatus("busy", "Loading model");
+        this.showSubtitleOverlay("Offline dictation", "Loading local SenseVoice model...");
+        break;
+      case "listening":
+        this.listening = true;
+        this.setStatus("listening");
+        this.showSubtitleOverlay(
+          "Offline dictation",
+          this.offlineSession?.mode === "push-to-talk"
+            ? "Push to talk active — speak now..."
+            : "Listening...",
+        );
+        break;
+      case "transcribing":
+      case "stopping":
+        this.listening = false;
+        this.setStatus("busy", "Transcribing");
+        this.showSubtitleOverlay("Offline dictation", "Transcribing offline...");
+        break;
+      case "idle":
+        this.listening = false;
+        if (!this.speechPlayer?.isSpeaking && this.currentStatus !== "error") {
+          this.setStatus("idle");
+        }
+        break;
+    }
+  }
+
+  private isDictationBusy(): boolean {
+    if (this.startingDictation || this.listening) {
+      return true;
+    }
+    const state = this.offlineSession?.state;
+    return state !== undefined && state !== "idle";
   }
 
   private clearSubtitleHideTimer(): void {
@@ -266,12 +597,43 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     });
     this.statusBarEl = item;
 
+    const releasePointerHold = (): void => {
+      if (!this.pointerHoldActive) {
+        return;
+      }
+      this.pointerHoldActive = false;
+      if (this.startingDictation) {
+        this.dictationStartEpoch += 1;
+        this.startingDictation = false;
+      }
+      if (this.offlineSession && this.offlineSession.state !== "idle") {
+        void this.offlineSession.stop({ flush: true });
+      }
+    };
+
+    this.registerDomEvent(item, "pointerdown", (ev: PointerEvent) => {
+      if (ev.button !== 0 || this.speechPlayer?.isSpeaking) {
+        return;
+      }
+      if (this.settings.dictationMode === "push-to-talk" && !this.isDictationBusy()) {
+        this.pointerHoldActive = true;
+        void this.toggleDictation("push-to-talk", true);
+      }
+    });
+
+    this.registerDomEvent(window, "pointerup", releasePointerHold);
+    this.registerDomEvent(window, "pointercancel", releasePointerHold);
+    this.registerDomEvent(window, "blur", releasePointerHold);
+
     this.registerDomEvent(item, "click", () => {
       if (this.speechPlayer?.isSpeaking) {
         this.stopReadAloud();
-      } else {
-        this.toggleDictation();
+        return;
       }
+      if (this.settings.dictationMode === "push-to-talk") {
+        return;
+      }
+      void this.toggleDictation();
     });
   }
 
@@ -293,7 +655,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.subtitleOverlayEl = overlay;
   }
 
-  private setStatus(next: VoiceStatusKind): void {
+  private setStatus(next: VoiceStatusKind, labelOverride?: string): void {
     this.currentStatus = next;
     if (!this.statusBarEl || !this.statusLabelEl) {
       return;
@@ -302,7 +664,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.statusBarEl.removeClass(cls);
     }
     this.statusBarEl.addClass(STATUS_CLASS_MAP[next]);
-    this.statusLabelEl.setText(STATUS_LABEL_MAP[next]);
+    this.statusLabelEl.setText(labelOverride ?? STATUS_LABEL_MAP[next]);
   }
 
   private showSubtitleOverlay(role: string, text: string, autoHideMs?: number): void {
@@ -318,6 +680,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.clearSubtitleHideTimer();
     this.subtitleRoleEl?.setText(role);
     this.subtitleTextEl?.setText(text);
+    this.subtitleOverlayEl.removeClass("vm-subtitle-visible");
     this.subtitleOverlayEl.removeClass("vm-subtitle-hidden");
     this.subtitleOverlayEl.addClass("vm-subtitle-visible");
 
@@ -338,38 +701,143 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.subtitleOverlayEl.addClass("vm-subtitle-hidden");
   }
 
-  private toggleDictation(): void {
-    if (this.listening) {
-      this.stopDictation();
+  async toggleDictation(modeOverride?: DictationMode, fromPointerHold = false): Promise<void> {
+    if (this.startingDictation) {
+      this.dictationStartEpoch += 1;
+      this.startingDictation = false;
+      this.pointerHoldActive = false;
+      if (this.offlineSession && this.offlineSession.state !== "idle") {
+        await this.offlineSession.stop({ flush: false });
+      }
+      if (!this.speechPlayer?.isSpeaking && this.currentStatus !== "error") {
+        this.setStatus("idle");
+        this.hideSubtitleOverlay();
+      }
+      new Notice("Offline voice dictation stopped.");
+      return;
+    }
+
+    if (this.offlineSession && this.offlineSession.state !== "idle") {
+      this.pointerHoldActive = false;
+      await this.offlineSession.stop({ flush: true });
+      new Notice("Offline voice dictation stopped.");
+      return;
+    }
+
+    if (this.activeRecognition || this.listening) {
+      this.stopBrowserRecognition();
       new Notice("Voice dictation stopped.");
       return;
     }
 
     const effectiveAsr = resolveEffectiveAsrEngine(this.settings.asrEngine, this.capabilities);
+    const mode = modeOverride ?? this.settings.dictationMode;
+
+    if (effectiveAsr === "sensevoice-wasm") {
+      await this.startOfflineSenseVoiceDictation(mode, fromPointerHold);
+      return;
+    }
+
     if (effectiveAsr !== "system") {
       new Notice(
-        `Offline WASM and provider dictation (${effectiveAsr}) is scheduled for milestone M1; 0.1.0 currently provides browser-native speech recognition fallback where supported.`,
+        `Speech recognition engine "${effectiveAsr}" is scheduled for a subsequent milestone. Choose SenseVoice WASM on desktop for offline dictation.`,
       );
       return;
     }
 
+    this.startBrowserSpeechRecognitionFallback();
+  }
+
+  private async startOfflineSenseVoiceDictation(
+    mode: DictationMode,
+    fromPointerHold: boolean,
+  ): Promise<void> {
+    const manager = this.ensureDesktopModelManager();
+    if (!manager) {
+      this.pointerHoldActive = false;
+      new Notice("Local offline WASM dictation is disabled on mobile devices.");
+      return;
+    }
+
+    const startEpoch = ++this.dictationStartEpoch;
+    this.startingDictation = true;
+
+    try {
+      let status: DictationStackStatus;
+      try {
+        status = await manager.checkStatus();
+      } catch (err) {
+        const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+        new Notice(`Could not verify external model cache: ${msg}`);
+        return;
+      }
+
+      if (startEpoch !== this.dictationStartEpoch || (fromPointerHold && !this.pointerHoldActive)) {
+        return;
+      }
+
+      if (!status.ready) {
+        this.pointerHoldActive = false;
+        new Notice(
+          "Offline dictation models are not installed yet. Open Voice Mode settings to download and verify them.",
+          7000,
+        );
+        return;
+      }
+
+      const session = this.ensureOfflineDictationSession();
+      if (!session) {
+        this.pointerHoldActive = false;
+        return;
+      }
+
+      // Pause active read-aloud before capturing microphone input to prevent echo loops.
+      this.speechPlayer?.cancel();
+
+      try {
+        await session.start(mode);
+      } catch {
+        this.pointerHoldActive = false;
+        // Detailed error Notice is already surfaced via OfflineDictationSession.onError.
+        return;
+      }
+
+      if (startEpoch !== this.dictationStartEpoch || (fromPointerHold && !this.pointerHoldActive)) {
+        await session.stop({ flush: true });
+        return;
+      }
+
+      new Notice(
+        mode === "single"
+          ? "Offline dictation started (single utterance)."
+          : mode === "push-to-talk"
+            ? "Push-to-talk started — invoke again or release to transcribe."
+            : "Offline dictation started (SenseVoice WASM).",
+      );
+    } finally {
+      if (this.dictationStartEpoch === startEpoch) {
+        this.startingDictation = false;
+      }
+    }
+  }
+
+  private startBrowserSpeechRecognitionFallback(): void {
     const win = activeWindow as SpeechRecognitionWindow;
     const RecognitionCtor = win.SpeechRecognition ?? win.webkitSpeechRecognition;
     if (!RecognitionCtor) {
       new Notice(
         this.capabilities.isMobile
           ? "System speech recognition is unavailable in this mobile runtime."
-          : "Browser-native speech recognition is unavailable in this desktop build. Offline local WASM dictation is scheduled for milestone M1.",
+          : "Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for offline dictation.",
       );
       return;
     }
 
-    // Pause active read-aloud before capturing microphone input to prevent echo loops.
     this.speechPlayer?.cancel();
 
     const recognition = new RecognitionCtor();
     recognition.lang = this.settings.dictationLanguage;
-    recognition.continuous = true;
+    recognition.continuous = this.settings.dictationMode !== "single";
     recognition.interimResults = true;
 
     const replacer = createAsrReplacer(this.settings.asrReplacements);
@@ -410,6 +878,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.activeRecognition = null;
       this.setStatus("error");
       this.hideSubtitleOverlay();
+      if (!this.capabilities.isMobile && event.error === "network") {
+        new Notice(
+          "Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for 100% offline dictation.",
+          7000,
+        );
+        return;
+      }
       new Notice(`Voice dictation error: ${event.error}.`);
     };
 
@@ -445,7 +920,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
   }
 
-  private stopDictation(): void {
+  private stopBrowserRecognition(): void {
     const recognition = this.activeRecognition;
     this.activeRecognition = null;
     this.listening = false;
@@ -466,7 +941,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.hideSubtitleOverlay();
   }
 
-  private commitDictatedText(text: string): void {
+  commitDictatedText(text: string): void {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     const activeEl = resolveDeepActiveElement(activeDocument);
 
@@ -477,7 +952,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
-    // 2. Otherwise insert into an external focused input (e.g. sidebar Copilot / AI chat box).
+    // 2. Otherwise insert into an external focused input (e.g. sidebar Copilot Lexical / AI chat box).
     if (insertIntoFocusedInput(activeDocument, text)) {
       return;
     }
@@ -508,8 +983,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
-    if (this.listening) {
-      this.stopDictation();
+    this.dictationStartEpoch += 1;
+    this.startingDictation = false;
+    this.pointerHoldActive = false;
+    if (this.offlineSession && this.offlineSession.state !== "idle") {
+      void this.offlineSession.abort();
+    }
+    if (this.listening || this.activeRecognition) {
+      this.stopBrowserRecognition();
     }
 
     this.overflowNotified = false;
@@ -531,25 +1012,30 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     new Notice("Read-aloud stopped.");
   }
 
-  private showRuntimeStatusNotice(): void {
+  private async showRuntimeStatusNotice(): Promise<void> {
     const effectiveAsr = resolveEffectiveAsrEngine(this.settings.asrEngine, this.capabilities);
     const effectiveTts = resolveEffectiveTtsEngine(this.settings.ttsEngine, this.capabilities);
-    // Honest AEC status: nativeAecActive stays false until M2 probes live MediaStreamTrack AEC.
     const bargeIn = resolveBargeInPolicy({
       isMobile: this.capabilities.isMobile,
       isSafari: Platform.isSafari,
       nativeAecActive: false,
     });
-    const wasmLabel = this.capabilities.allowLocalWasmModels
-      ? `enabled (desktop, budget ${this.capabilities.maxLocalModelMemoryMb} MB)`
-      : "disabled (mobile OOM safeguard)";
+
+    let wasmLabel = "disabled (mobile OOM safeguard)";
+    if (this.capabilities.allowLocalWasmModels) {
+      const status = await this.getModelStatus().catch(() => null);
+      wasmLabel = status?.ready
+        ? `ready (SHA256 verified, budget ${this.capabilities.maxLocalModelMemoryMb} MB)`
+        : `not downloaded (budget ${this.capabilities.maxLocalModelMemoryMb} MB)`;
+    }
+
     const secretLabel = this.secretStore.available
       ? `ready (${this.secretStore.listSecrets().length} stored)`
       : "unavailable (upgrade >= 1.11.4)";
 
     new Notice(
-      `Host: ${this.capabilities.hostClass} | ASR: ${effectiveAsr} | TTS: ${effectiveTts} | Local WASM: ${wasmLabel} | Secret storage: ${secretLabel} | Barge-in: ${bargeIn.policy}`,
-      6000,
+      `Host: ${this.capabilities.hostClass} | ASR: ${effectiveAsr} (${this.settings.dictationMode}) | TTS: ${effectiveTts} | Local WASM: ${wasmLabel} | Secret storage: ${secretLabel} | Barge-in: ${bargeIn.policy}`,
+      6500,
     );
   }
 }

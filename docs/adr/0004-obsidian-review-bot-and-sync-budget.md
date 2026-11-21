@@ -18,8 +18,8 @@
    - 将 `eslint-plugin-obsidianmd@0.6.0` 作为 `pnpm run lint` 必需检查项，与 `typecheck`、`test`、`build`、`check:release` 一起在 Ubuntu / macOS / Windows 三端矩阵运行；
    - `.github/workflows/release.yml` 强制校验无 `v` 前缀 semver Tag（`Tag == manifest.json.version == package.json.version` 且与 `versions.json` 一致），强制断言 `main.js < 5 MB`，且 Release 严格**仅上传 `main.js`、`manifest.json`、`styles.css`**。
 2. **模型文件 Vault 外独立缓存与显式用户触发下载**：
-   - 桌面端离线模型一律存放在 Vault 之外的操作系统应用缓存目录（macOS/Linux 默认 `~/.cache/voice-mode/models/`、Windows `%LOCALAPPDATA%\voice-mode\models\`，或用户指定的 Vault 外目录），绝不写入 `.obsidian/` 或笔记目录；
-   - 严禁插件激活时静默后台拉取模型；所有模型下载必须由用户显式点击触发，经 HTTPS 白名单 + 固定 SHA256 校验，并在 README 与设置界面完整披露来源 URL、体积与许可证。
+   - 桌面端离线模型与 WASM 运行时一律存放在 Vault 之外的操作系统应用缓存目录（macOS `~/.cache/voice-mode/models/`、Linux `$XDG_CACHE_HOME/voice-mode/models/` 或 `~/.cache/voice-mode/models/`、Windows `%LOCALAPPDATA%\voice-mode\models\`，或用户指定的经 `realpath` 校验位于 Vault 外的绝对路径），绝不写入 `.obsidian/` 或笔记目录；
+   - 严禁插件激活时静默后台拉取模型；所有下载必须由用户显式点击触发，经逐跳 HTTPS 域名白名单（模型权重：`huggingface.co` / `hf-mirror.com` 及其 LFS 子域；`sherpa-onnx@2.0.2` WASM 运行时压缩包：`registry.npmjs.org` / `registry.npmmirror.com` / `cdn.npmmirror.com`）+ 固定 SHA256 摘要校验 + tar 路径穿越与软硬链接拦截，并在 README、`SECURITY.md` 与设置界面完整披露来源域名、体积与上游许可证。
 3. **严格隔离 GPL-3.0 与非 MIT 模型资产**：
    - 仓库源码、npm 依赖树与 GitHub Release 产物内**永不包含**任何模型权重、WASM 大二进制或 `espeak-ng-data` 音素文件；
    - 任何需要 `espeak-ng-data`（如 Wave 3 可选 `voice-daemon` 的 Kokoro 音色）的场景均通过独立运行时按需下载并附带独立许可证声明。

@@ -14,6 +14,7 @@ import {
   type SecretStore,
   type TtsEngineKind,
 } from "@voice-mode/core";
+import type { DictationMode } from "@voice-mode/browser";
 import type { SecretStorage } from "obsidian";
 import {
   DEFAULT_LOCAL_DAEMON_URL,
@@ -31,6 +32,12 @@ const VALID_ASR_ENGINES: ReadonlySet<string> = new Set([
   "zipformer-wasm",
   "openai-compat",
   "daemon",
+]);
+
+const VALID_DICTATION_MODES: ReadonlySet<string> = new Set([
+  "toggle",
+  "single",
+  "push-to-talk",
 ]);
 
 const VALID_LLM_PRESETS: ReadonlySet<string> = new Set<string>(LLM_PRESET_IDS);
@@ -63,7 +70,9 @@ const RAW_SECRET_VALUE_PATTERNS: readonly RegExp[] = [
 export interface VoiceModeSettings {
   // Voice input
   asrEngine: ObsidianAsrEngine;
+  dictationMode: DictationMode;
   dictationLanguage: string;
+  endpointSilenceMs: number;
   asrEndpointUrl: string;
   asrApiKeySecretId: string;
   asrReplacements: AsrReplacement[];
@@ -87,13 +96,17 @@ export interface VoiceModeSettings {
 
   // Models and privacy
   modelMirrorHost: string;
+  customModelCacheDir: string;
+  workerIdleUnloadMinutes: number;
   daemonUrl: string;
   allowCloudFallbackOnMobile: boolean;
 }
 
 export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
   asrEngine: "system",
+  dictationMode: "toggle",
   dictationLanguage: "zh-CN",
+  endpointSilenceMs: 1500,
   asrEndpointUrl: "",
   asrApiKeySecretId: "",
   asrReplacements: [],
@@ -114,6 +127,8 @@ export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
   llmApiKeySecretIds: {},
 
   modelMirrorHost: MODEL_HOST_PRIMARY,
+  customModelCacheDir: "",
+  workerIdleUnloadMinutes: 5,
   daemonUrl: DEFAULT_LOCAL_DAEMON_URL,
   allowCloudFallbackOnMobile: false,
 };
@@ -378,6 +393,11 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
       ? (sanitized.asrEngine as ObsidianAsrEngine)
       : DEFAULT_SETTINGS.asrEngine;
 
+  const dictationMode: DictationMode =
+    typeof sanitized.dictationMode === "string" && VALID_DICTATION_MODES.has(sanitized.dictationMode)
+      ? (sanitized.dictationMode as DictationMode)
+      : DEFAULT_SETTINGS.dictationMode;
+
   const ttsEngine = asTtsEngineKind(sanitized.ttsEngine);
   const llmPresetId = asLlmPresetId(sanitized.llmPresetId);
 
@@ -397,10 +417,14 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
 
   return {
     asrEngine,
+    dictationMode,
     dictationLanguage:
       typeof sanitized.dictationLanguage === "string" && sanitized.dictationLanguage.trim().length > 0
         ? sanitized.dictationLanguage.trim()
         : DEFAULT_SETTINGS.dictationLanguage,
+    endpointSilenceMs: Math.round(
+      clampNumber(sanitized.endpointSilenceMs, 400, 5000, DEFAULT_SETTINGS.endpointSilenceMs),
+    ),
     asrEndpointUrl: sanitizeOptionalEndpointUrl(sanitized.asrEndpointUrl),
     asrApiKeySecretId: cleanSecretId(sanitized.asrApiKeySecretId),
     asrReplacements,
@@ -435,6 +459,18 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
     ),
 
     modelMirrorHost: validatedMirror ?? DEFAULT_SETTINGS.modelMirrorHost,
+    customModelCacheDir:
+      typeof sanitized.customModelCacheDir === "string"
+        ? sanitized.customModelCacheDir.trim()
+        : DEFAULT_SETTINGS.customModelCacheDir,
+    workerIdleUnloadMinutes: Math.round(
+      clampNumber(
+        sanitized.workerIdleUnloadMinutes,
+        0,
+        60,
+        DEFAULT_SETTINGS.workerIdleUnloadMinutes,
+      ),
+    ),
     daemonUrl: sanitizeDaemonUrl(sanitized.daemonUrl),
     allowCloudFallbackOnMobile:
       typeof sanitized.allowCloudFallbackOnMobile === "boolean"

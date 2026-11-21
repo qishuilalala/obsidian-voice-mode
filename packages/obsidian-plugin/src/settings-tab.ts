@@ -1,18 +1,26 @@
 import {
   ALLOWED_MODEL_HOSTNAMES,
+  ALLOWED_WASM_HOSTNAMES,
   LLM_PRESETS,
   LLM_PRESET_IDS,
+  MODEL_BUNDLES,
   MODEL_HOST_FALLBACK,
   MODEL_HOST_PRIMARY,
+  REPLACEMENTS_MAX_PAYLOAD_BYTES,
+  SHERPA_WASM_RUNTIME_202,
   asLlmPresetId,
   asTtsEngineKind,
+  redactSecrets,
+  replacementsPayloadBytes,
   validateEndpointUrl,
   validateLoopbackUrl,
   validateModelHost,
+  validateReplacements,
+  type AsrReplacement,
   type MarkdownTablePolicy,
   type TtsEngineKind,
 } from "@voice-mode/core";
-import { resolveBargeInPolicy } from "@voice-mode/browser";
+import { resolveBargeInPolicy, type DictationMode } from "@voice-mode/browser";
 import {
   Notice,
   Platform,
@@ -24,8 +32,11 @@ import {
   type Plugin,
   type SettingDefinitionItem,
 } from "obsidian";
+import { resolveExternalModelCacheDir } from "./desktop-fs.ts";
+import type { DictationStackStatus, ModelDownloadProgress } from "./model-manager.ts";
 import {
   DEFAULT_LOCAL_DAEMON_URL,
+  MOBILE_WASM_RESTRICTION_REASON,
   type DesktopOsHint,
   type ObsidianAsrEngine,
   type RuntimeCapabilities,
@@ -45,14 +56,29 @@ export interface VoiceModePluginHost {
   settings: VoiceModeSettings;
   readonly capabilities: RuntimeCapabilities;
   saveSettings(): Promise<void>;
+  getVaultBasePath?(): string | null;
+  getModelStatus?(): Promise<DictationStackStatus | null>;
+  isDownloadingModels?(): boolean;
+  startModelDownload?(
+    onProgress?: (progress: ModelDownloadProgress) => void,
+  ): Promise<DictationStackStatus>;
+  cancelModelDownload?(): void;
+  clearCachedModels?(): Promise<void>;
+  openModelCacheFolder?(): Promise<void>;
 }
 
 const ASR_ENGINE_LABELS: Readonly<Record<ObsidianAsrEngine, string>> = {
   system: "System speech recognition",
-  "sensevoice-wasm": "SenseVoice WASM (desktop local)",
+  "sensevoice-wasm": "SenseVoice WASM (desktop offline)",
   "zipformer-wasm": "Zipformer WASM (desktop local)",
   "openai-compat": "OpenAI-compatible endpoint (BYOK)",
   daemon: "Local voice daemon (desktop)",
+};
+
+const DICTATION_MODE_LABELS: Readonly<Record<DictationMode, string>> = {
+  toggle: "Toggle start and stop",
+  single: "Single utterance",
+  "push-to-talk": "Push to talk",
 };
 
 const TTS_ENGINE_LABELS: Readonly<Record<TtsEngineKind, string>> = {
@@ -87,6 +113,17 @@ function buildOptionsMap<K extends string>(
   return options;
 }
 
+function formatMegabytes(bytes: number): string {
+  return `${(bytes / 1_048_576).toFixed(1)} MB`;
+}
+
+function parseAliasList(raw: string): string[] {
+  return raw
+    .split(/[,，]+/)
+    .map((entry) => entry.trim())
+    .filter((entry) => entry.length > 0);
+}
+
 export class VoiceModeSettingTab extends PluginSettingTab {
   private readonly host: VoiceModePluginHost;
 
@@ -103,6 +140,10 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const { settings, capabilities } = this.host;
     const asrOptions = buildOptionsMap(capabilities.allowedAsrEngines, ASR_ENGINE_LABELS);
     const ttsOptions = buildOptionsMap(capabilities.allowedTtsEngines, TTS_ENGINE_LABELS);
+    const dictationModeOptions = buildOptionsMap(
+      ["toggle", "single", "push-to-talk"] as const,
+      DICTATION_MODE_LABELS,
+    );
     const presetOptions: Record<string, string> = {};
     for (const presetId of LLM_PRESET_IDS) {
       presetOptions[presetId] = LLM_PRESETS[presetId].label;
@@ -124,12 +165,32 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
+            name: "Dictation trigger mode",
+            desc: "Choose continuous toggle, single-utterance auto-stop, or push-to-talk.",
+            control: {
+              type: "dropdown",
+              key: "dictationMode",
+              options: dictationModeOptions,
+            },
+          },
+          {
             name: "Dictation language",
-            desc: "Locale code used for system dictation and transcription requests.",
+            desc: "Locale code used for dictation and transcription requests (use zh-CN or auto for mixed Chinese and English).",
             control: {
               type: "text",
               key: "dictationLanguage",
               placeholder: "zh-CN",
+            },
+          },
+          {
+            name: "Silence endpoint duration",
+            desc: "Trailing silence in milliseconds before an utterance is finalized (400 to 5000 ms).",
+            control: {
+              type: "slider",
+              key: "endpointSilenceMs",
+              min: 400,
+              max: 5000,
+              step: 100,
             },
           },
           {
@@ -138,6 +199,15 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             control: {
               type: "toggle",
               key: "enableSubtitleOverlay",
+            },
+          },
+          {
+            name: "Personal vocabulary replacements",
+            desc: "Map spoken aliases or homophones to exact domain terms or wikilinks during dictation.",
+            render: (setting) => {
+              setting.settingEl.empty();
+              setting.settingEl.addClass("vm-setting-block");
+              this.renderReplacementsEditor(setting.settingEl);
             },
           },
           {
@@ -296,8 +366,18 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             name: "Runtime summary",
             searchable: false,
             render: (setting) => {
-              setting.infoEl.empty();
-              this.renderRuntimeBanner(setting.infoEl);
+              setting.settingEl.empty();
+              setting.settingEl.addClass("vm-setting-block");
+              this.renderRuntimeBanner(setting.settingEl);
+            },
+          },
+          {
+            name: "Offline speech models",
+            desc: "Download or verify SHA256-pinned offline dictation models stored outside the vault.",
+            render: (setting) => {
+              setting.settingEl.empty();
+              setting.settingEl.addClass("vm-setting-block");
+              this.renderOfflineModelCard(setting.settingEl);
             },
           },
           {
@@ -310,6 +390,29 @@ export class VoiceModeSettingTab extends PluginSettingTab {
                 [MODEL_HOST_PRIMARY]: "Primary host (huggingface.co)",
                 [MODEL_HOST_FALLBACK]: "Fallback mirror (hf-mirror.com)",
               },
+            },
+          },
+          {
+            name: "Custom external model cache path",
+            desc: "Optional absolute path outside the vault for desktop offline models (useful for sandboxed Linux packages).",
+            visible: () => capabilities.allowLocalWasmModels,
+            control: {
+              type: "text",
+              key: "customModelCacheDir",
+              placeholder: capabilities.externalModelCacheDir,
+              validate: (value) => this.validateCustomCacheDirMessage(value),
+            },
+          },
+          {
+            name: "Idle model unload timeout",
+            desc: "Minutes of inactivity before unloading the local WASM worker to free memory (0 keeps it loaded).",
+            visible: () => capabilities.allowLocalWasmModels,
+            control: {
+              type: "slider",
+              key: "workerIdleUnloadMinutes",
+              min: 0,
+              max: 30,
+              step: 1,
             },
           },
           {
@@ -343,8 +446,12 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         return capabilities.allowedAsrEngines.includes(settings.asrEngine)
           ? settings.asrEngine
           : capabilities.defaultAsrEngine;
+      case "dictationMode":
+        return settings.dictationMode;
       case "dictationLanguage":
         return settings.dictationLanguage;
+      case "endpointSilenceMs":
+        return settings.endpointSilenceMs;
       case "enableSubtitleOverlay":
         return settings.enableSubtitleOverlay;
       case "asrEndpointUrl":
@@ -369,6 +476,10 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         return settings.llmBaseUrl;
       case "modelMirrorHost":
         return settings.modelMirrorHost;
+      case "customModelCacheDir":
+        return settings.customModelCacheDir;
+      case "workerIdleUnloadMinutes":
+        return settings.workerIdleUnloadMinutes;
       case "daemonUrl":
         return settings.daemonUrl;
       case "allowCloudFallbackOnMobile":
@@ -388,9 +499,19 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           settings.asrEngine = value as ObsidianAsrEngine;
         }
         break;
+      case "dictationMode":
+        if (value === "toggle" || value === "single" || value === "push-to-talk") {
+          settings.dictationMode = value;
+        }
+        break;
       case "dictationLanguage":
         if (typeof value === "string") {
           settings.dictationLanguage = value.trim() || "zh-CN";
+        }
+        break;
+      case "endpointSilenceMs":
+        if (typeof value === "number" && Number.isFinite(value)) {
+          settings.endpointSilenceMs = Math.round(value);
         }
         break;
       case "enableSubtitleOverlay":
@@ -462,6 +583,21 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           settings.modelMirrorHost = validated;
         }
         break;
+      case "customModelCacheDir":
+        if (typeof value === "string") {
+          const trimmed = value.trim();
+          if (trimmed && this.validateCustomCacheDirMessage(trimmed)) {
+            return;
+          }
+          settings.customModelCacheDir = trimmed;
+          shouldRefresh = true;
+        }
+        break;
+      case "workerIdleUnloadMinutes":
+        if (typeof value === "number" && Number.isFinite(value)) {
+          settings.workerIdleUnloadMinutes = Math.round(value);
+        }
+        break;
       case "daemonUrl":
         if (typeof value === "string") {
           const trimmed = value.trim();
@@ -530,6 +666,24 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     }
   }
 
+  private validateCustomCacheDirMessage(raw: string): string | undefined {
+    const trimmed = raw.trim();
+    if (!trimmed || !this.host.capabilities.allowLocalWasmModels) {
+      return undefined;
+    }
+    try {
+      resolveExternalModelCacheDir({
+        customDir: trimmed,
+        vaultBasePath: this.host.getVaultBasePath?.() ?? null,
+      });
+      return undefined;
+    } catch (err) {
+      return err instanceof Error
+        ? err.message
+        : "Custom model cache directory must be an absolute path outside the vault.";
+    }
+  }
+
   private attachSecretControl(
     setting: Setting,
     currentSecretId: string,
@@ -575,14 +729,46 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
+      .setName("Dictation trigger mode")
+      .setDesc("Choose continuous toggle, single-utterance auto-stop, or push-to-talk.")
+      .addDropdown((dropdown) => {
+        dropdown
+          .addOption("toggle", DICTATION_MODE_LABELS.toggle)
+          .addOption("single", DICTATION_MODE_LABELS.single)
+          .addOption("push-to-talk", DICTATION_MODE_LABELS["push-to-talk"])
+          .setValue(settings.dictationMode)
+          .onChange(async (value) => {
+            if (value === "toggle" || value === "single" || value === "push-to-talk") {
+              settings.dictationMode = value;
+              await this.host.saveSettings();
+            }
+          });
+      });
+
+    new Setting(containerEl)
       .setName("Dictation language")
-      .setDesc("Locale code used for system dictation and transcription requests.")
+      .setDesc(
+        "Locale code used for dictation and transcription requests (use zh-CN or auto for mixed Chinese and English).",
+      )
       .addText((text) => {
         text
           .setPlaceholder("zh-CN")
           .setValue(settings.dictationLanguage)
           .onChange(async (value) => {
             settings.dictationLanguage = value.trim() || "zh-CN";
+            await this.host.saveSettings();
+          });
+      });
+
+    new Setting(containerEl)
+      .setName("Silence endpoint duration")
+      .setDesc("Trailing silence in milliseconds before an utterance is finalized (400 to 5000 ms).")
+      .addSlider((slider) => {
+        slider
+          .setLimits(400, 5000, 100)
+          .setValue(settings.endpointSilenceMs)
+          .onChange(async (value) => {
+            settings.endpointSilenceMs = Math.round(value);
             await this.host.saveSettings();
           });
       });
@@ -596,6 +782,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           await this.host.saveSettings();
         });
       });
+
+    this.renderReplacementsEditor(containerEl);
 
     const asrSecretSetting = new Setting(containerEl)
       .setName("Transcription API key")
@@ -625,6 +813,162 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             await this.host.saveSettings();
           });
       });
+  }
+
+  private renderReplacementsEditor(parentEl: HTMLElement): void {
+    const panel = parentEl.createDiv({ cls: "vm-replacements-panel" });
+
+    const header = panel.createDiv({ cls: "vm-replacements-header" });
+    header.createSpan({
+      cls: "vm-replacements-title",
+      text: "Personal vocabulary replacements",
+    });
+    const budgetSpan = header.createSpan({ cls: "vm-replacements-budget" });
+
+    const currentRules = (): AsrReplacement[] => this.host.settings.asrReplacements;
+
+    const updateBudgetLabel = (): void => {
+      const rules = currentRules();
+      const used = replacementsPayloadBytes(rules);
+      budgetSpan.setText(
+        `${rules.length} rules (${used} / ${REPLACEMENTS_MAX_PAYLOAD_BYTES} UTF-8 bytes)`,
+      );
+    };
+    updateBudgetLabel();
+
+    panel.createDiv({
+      cls: "vm-model-meta",
+      text: "Map spoken aliases or homophones to domain terms, proper nouns, or [[wikilinks]] in a single pass.",
+    });
+
+    const listEl = panel.createDiv({ cls: "vm-replacements-list" });
+
+    const commitCandidateRules = async (
+      candidate: AsrReplacement[],
+      reRender: boolean,
+    ): Promise<boolean> => {
+      const check = validateReplacements(candidate);
+      if (!check.ok) {
+        new Notice(`Invalid replacement dictionary: ${check.error}.`);
+        return false;
+      }
+      this.host.settings.asrReplacements = check.rules;
+      await this.host.saveSettings();
+      if (reRender) {
+        renderRows();
+      }
+      updateBudgetLabel();
+      return true;
+    };
+
+    const renderRows = (): void => {
+      listEl.empty();
+      const rules = currentRules();
+      if (rules.length === 0) {
+        listEl.createDiv({
+          cls: "vm-replacements-empty",
+          text: "No custom vocabulary rules configured yet.",
+        });
+        return;
+      }
+
+      rules.forEach((rule, index) => {
+        const row = listEl.createDiv({ cls: "vm-replacement-row" });
+        const fromInput = row.createEl("input", {
+          type: "text",
+          value: rule.from.join(", "),
+          placeholder: "Spoken aliases (comma-separated)",
+        });
+        row.createSpan({ cls: "vm-replacement-arrow", text: "->" });
+        const toInput = row.createEl("input", {
+          type: "text",
+          value: rule.to,
+          placeholder: "Replacement term",
+        });
+        const removeBtn = row.createEl("button", { text: "Remove" });
+
+        const applyEdit = async (): Promise<void> => {
+          const nextAliases = parseAliasList(fromInput.value);
+          const nextTo = toInput.value.trim();
+          if (
+            nextAliases.join("\u0000") === rule.from.join("\u0000") &&
+            nextTo === rule.to
+          ) {
+            return;
+          }
+          if (nextAliases.length === 0 || !nextTo) {
+            fromInput.value = rule.from.join(", ");
+            toInput.value = rule.to;
+            new Notice("Both spoken aliases and target term are required.");
+            return;
+          }
+          const copy: AsrReplacement[] = currentRules().map((item, idx) =>
+            idx === index ? { from: nextAliases, to: nextTo } : item,
+          );
+          const ok = await commitCandidateRules(copy, false);
+          if (!ok) {
+            fromInput.value = rule.from.join(", ");
+            toInput.value = rule.to;
+          } else {
+            rule.from = nextAliases;
+            rule.to = nextTo;
+          }
+        };
+
+        fromInput.addEventListener("change", () => {
+          void applyEdit();
+        });
+        toInput.addEventListener("change", () => {
+          void applyEdit();
+        });
+        removeBtn.addEventListener("click", () => {
+          const filtered = currentRules().filter((_, idx) => idx !== index);
+          void commitCandidateRules(filtered, true);
+        });
+      });
+    };
+
+    renderRows();
+
+    const addRow = panel.createDiv({ cls: "vm-replacement-row vm-replacement-add-row" });
+    const newFromInput = addRow.createEl("input", {
+      type: "text",
+      placeholder: "Aliases (e.g. 光四点, 光4点)",
+    });
+    addRow.createSpan({ cls: "vm-replacement-arrow", text: "->" });
+    const newToInput = addRow.createEl("input", {
+      type: "text",
+      placeholder: "Target term (e.g. Obsidian)",
+    });
+    const addBtn = addRow.createEl("button", { cls: "mod-cta", text: "Add rule" });
+
+    const submitNewRule = async (): Promise<void> => {
+      const fromAliases = parseAliasList(newFromInput.value);
+      const toVal = newToInput.value.trim();
+      if (fromAliases.length === 0 || !toVal) {
+        new Notice("Enter at least one spoken alias and a target replacement term.");
+        return;
+      }
+      const nextRules: AsrReplacement[] = [
+        ...currentRules(),
+        { from: fromAliases, to: toVal },
+      ];
+      const ok = await commitCandidateRules(nextRules, true);
+      if (ok) {
+        newFromInput.value = "";
+        newToInput.value = "";
+      }
+    };
+
+    addBtn.addEventListener("click", () => {
+      void submitNewRule();
+    });
+    newToInput.addEventListener("keydown", (ev: KeyboardEvent) => {
+      if (ev.key === "Enter") {
+        ev.preventDefault();
+        void submitNewRule();
+      }
+    });
   }
 
   private renderReadAloudSection(containerEl: HTMLElement): void {
@@ -791,6 +1135,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     new Setting(containerEl).setName("Models and privacy").setHeading();
 
     this.renderRuntimeBanner(containerEl);
+    this.renderOfflineModelCard(containerEl);
 
     new Setting(containerEl)
       .setName("Model download host")
@@ -812,6 +1157,45 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             await this.host.saveSettings();
           });
       });
+
+    if (capabilities.allowLocalWasmModels) {
+      new Setting(containerEl)
+        .setName("Custom external model cache path")
+        .setDesc(
+          "Optional absolute path outside the vault for desktop offline models (useful for sandboxed Linux packages).",
+        )
+        .addText((text) => {
+          text
+            .setPlaceholder(capabilities.externalModelCacheDir)
+            .setValue(settings.customModelCacheDir)
+            .onChange(async (value) => {
+              const trimmed = value.trim();
+              const errMsg = this.validateCustomCacheDirMessage(trimmed);
+              if (errMsg) {
+                new Notice(errMsg);
+                return;
+              }
+              settings.customModelCacheDir = trimmed;
+              await this.host.saveSettings();
+              this.refreshTab();
+            });
+        });
+
+      new Setting(containerEl)
+        .setName("Idle model unload timeout")
+        .setDesc(
+          "Minutes of inactivity before unloading the local WASM worker to free memory (0 keeps it loaded).",
+        )
+        .addSlider((slider) => {
+          slider
+            .setLimits(0, 30, 1)
+            .setValue(settings.workerIdleUnloadMinutes)
+            .onChange(async (value) => {
+              settings.workerIdleUnloadMinutes = Math.round(value);
+              await this.host.saveSettings();
+            });
+        });
+    }
 
     if (capabilities.allowLocalDaemon) {
       new Setting(containerEl)
@@ -843,6 +1227,178 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           await this.host.saveSettings();
         });
       });
+  }
+
+  private renderOfflineModelCard(parentEl: HTMLElement): void {
+    const { capabilities } = this.host;
+    const card = parentEl.createDiv({ cls: "vm-model-card" });
+
+    const header = card.createDiv({ cls: "vm-model-card-header" });
+    header.createSpan({
+      cls: "vm-model-card-title",
+      text: "Offline dictation models (Silero VAD + SenseVoice int8 + WASM)",
+    });
+    const statusBadge = header.createSpan({
+      cls: "vm-model-badge-missing",
+      text: capabilities.allowLocalWasmModels ? "Checking..." : "Disabled on mobile",
+    });
+
+    if (!capabilities.allowLocalWasmModels) {
+      card.createDiv({
+        cls: "vm-model-meta",
+        text: MOBILE_WASM_RESTRICTION_REASON,
+      });
+      return;
+    }
+
+    const vadBundle = MODEL_BUNDLES["silero-vad"];
+    const senseBundle = MODEL_BUNDLES["sensevoice-int8"];
+    const expectedTotalBytes =
+      vadBundle.totalBytes +
+      senseBundle.totalBytes +
+      SHERPA_WASM_RUNTIME_202.files.reduce((acc, f) => acc + (f.bytes ?? 0), 0);
+
+    card.createDiv({
+      cls: "vm-model-meta",
+      text: `Explicit download (~${formatMegabytes(expectedTotalBytes)} unpacked, SHA256-verified, zero vault pollution). Upstream licenses: Silero VAD (${vadBundle.license}), SenseVoice (${senseBundle.license}, ${ALLOWED_MODEL_HOSTNAMES.join(" / ")}), sherpa-onnx ${SHERPA_WASM_RUNTIME_202.version} WASM (${SHERPA_WASM_RUNTIME_202.license}, ${ALLOWED_WASM_HOSTNAMES.join(" / ")}).`,
+    });
+
+    const detailLine = card.createDiv({
+      cls: "vm-model-meta vm-cache-path",
+      text: `Cache path: ${capabilities.externalModelCacheDir}`,
+    });
+
+    const progressWrap = card.createDiv({ cls: "vm-model-progress-wrap vm-subtitle-hidden" });
+    const progressTrack = progressWrap.createDiv({ cls: "vm-model-progress-track" });
+    const progressBar = progressTrack.createDiv({ cls: "vm-model-progress-bar" });
+    const progressLabel = progressWrap.createDiv({ cls: "vm-model-progress-label" });
+
+    const actions = card.createDiv({ cls: "vm-model-actions" });
+    const downloadBtn = actions.createEl("button", {
+      cls: "mod-cta",
+      text: "Download or verify models",
+    });
+    const cancelBtn = actions.createEl("button", {
+      cls: "vm-subtitle-hidden",
+      text: "Cancel download",
+    });
+    const openDirBtn = actions.createEl("button", {
+      text: "Open cache folder",
+    });
+    const clearBtn = actions.createEl("button", {
+      text: "Clear cached models",
+    });
+
+    const applyStatusToUi = (status: DictationStackStatus | null): void => {
+      if (!status) {
+        statusBadge.className = "vm-model-badge-missing";
+        statusBadge.setText("Unavailable");
+        return;
+      }
+      detailLine.setText(
+        `Cache path: ${status.cacheDir} | Verified: ${formatMegabytes(status.totalVerifiedBytes)} (${status.verifiedFiles.length} files)`,
+      );
+      if (status.ready) {
+        statusBadge.className = "vm-model-badge-ready";
+        statusBadge.setText("Ready (SHA256 verified)");
+      } else {
+        statusBadge.className = "vm-model-badge-missing";
+        statusBadge.setText(`Not installed (${status.missingOrCorruptFiles.length} pending)`);
+      }
+    };
+
+    const setBusyUi = (busy: boolean): void => {
+      downloadBtn.disabled = busy;
+      clearBtn.disabled = busy;
+      if (busy) {
+        cancelBtn.removeClass("vm-subtitle-hidden");
+        progressWrap.removeClass("vm-subtitle-hidden");
+      } else {
+        cancelBtn.addClass("vm-subtitle-hidden");
+      }
+    };
+
+    if (this.host.isDownloadingModels?.()) {
+      setBusyUi(true);
+      progressLabel.setText("Download in progress...");
+    }
+
+    void this.host
+      .getModelStatus?.()
+      .then((status) => applyStatusToUi(status))
+      .catch((err: unknown) => {
+        const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+        detailLine.setText(`Cache status error: ${msg}`);
+      });
+
+    downloadBtn.addEventListener("click", () => {
+      if (!this.host.startModelDownload) {
+        return;
+      }
+      setBusyUi(true);
+      progressBar.setCssProps({ "--vm-progress-width": "0%" });
+      progressLabel.setText("Starting verified model download...");
+
+      void this.host
+        .startModelDownload((progress) => {
+          const pct = Math.max(0, Math.min(100, progress.percent ?? 0));
+          progressBar.setCssProps({ "--vm-progress-width": `${pct}%` });
+          progressLabel.setText(
+            `${progress.phase}: ${progress.file} (${pct}% via ${progress.host})`,
+          );
+        })
+        .then((status) => {
+          applyStatusToUi(status);
+          progressBar.setCssProps({ "--vm-progress-width": "100%" });
+          progressLabel.setText("All offline dictation models verified and ready.");
+          if (this.containerEl.isConnected) {
+            this.refreshTab();
+          }
+        })
+        .catch((err: unknown) => {
+          const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+          progressLabel.setText(`Download stopped: ${msg}`);
+        })
+        .finally(() => {
+          setBusyUi(false);
+        });
+    });
+
+    cancelBtn.addEventListener("click", () => {
+      this.host.cancelModelDownload?.();
+      progressLabel.setText("Cancelling download (partial .part file preserved for resume)...");
+    });
+
+    openDirBtn.addEventListener("click", () => {
+      if (!this.host.openModelCacheFolder) {
+        return;
+      }
+      void this.host.openModelCacheFolder().catch((err: unknown) => {
+        const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+        new Notice(`Could not open model cache folder: ${msg}`);
+      });
+    });
+
+    clearBtn.addEventListener("click", () => {
+      if (!this.host.clearCachedModels) {
+        return;
+      }
+      setBusyUi(true);
+      void this.host
+        .clearCachedModels()
+        .then(() => this.host.getModelStatus?.() ?? null)
+        .then((status) => {
+          applyStatusToUi(status);
+          progressWrap.addClass("vm-subtitle-hidden");
+        })
+        .catch((err: unknown) => {
+          const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+          new Notice(`Could not clear cached models: ${msg}`);
+        })
+        .finally(() => {
+          setBusyUi(false);
+        });
+    });
   }
 
   private renderRuntimeBanner(parentEl: HTMLElement): void {
@@ -880,7 +1436,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     this.appendRuntimeRow(
       banner,
       "External model cache",
-      capabilities.externalModelCacheDir,
+      this.host.settings.customModelCacheDir || capabilities.externalModelCacheDir,
       "vm-cache-path",
     );
   }

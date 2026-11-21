@@ -38,6 +38,13 @@
 | `ollama`（`:11434` 本机探针） | `http://127.0.0.1:11434/v1/chat/completions` | 本机未装 Ollama（`TypeError: Failed to fetch`） | 本机未装 Ollama（`net::ERR_CONNECTION_REFUSED`） | 连接拒绝时给出清晰本地服务未启动提示 |
 | 回环模拟（Ollama `Origin` 规则 & SSE） | `http://127.0.0.1:<port>/v1/chat/completions` | 默认 `strict-ollama` 拒 `app://obsidian.md`（403 / `Failed to fetch`）；开启 CORS 后 `ReadableStream` 逐块收齐 **`3` 个 SSE 分片**（`106 ms`） | `strict-ollama` 与 `allow` 下均**直接可达**（HTTP 200，`106 ms`，主进程不发 `Origin: app://obsidian.md`，整包缓冲返回） | `fetch` 遇 CORS 拦截时自动无感回退 `requestUrl`，免配 `OLLAMA_ORIGINS` |
 
+### 1.2 M1 桌面离线 WASM 听写闭环真机验收记录（2026-11-22 / Obsidian `1.15.1` · Electron `43.8.9`）
+
+- **打包与自动化门禁**：`pnpm run check:all` 全绿（87 项单测通过、`eslint --max-warnings 0 .` 零警告、`main.js = 159.36 KB < 500 KB`、`check:release` 5/5 通过）。
+- **断网零外联与模型暖校验**：拦截 `window.fetch` 与 `https.get` 强制抛错条件下，插件重载、设置页渲染与完整听写全程外联请求数为 **`0`**；`DesktopModelManager.checkStatus()` 对 `~/.cache/voice-mode/models/`（`245.3 MB` / `8` 个文件）暖校验耗时 **`1 ms`**。
+- **单句定稿延迟与 53.1s 连续多段听写**：冷启动加载隔离 `MEMFS` Worker（`Silero VAD` + `SenseVoice int8`）耗时 **`769 ms`**；`4.8 s` 单句音频定稿延迟 **`1,245 ms`**（严守 `<= 5s` 语音 `< 1,500 ms` 门禁）；`53.1 s` 六段中英混说语料流式馈入总耗时 **`13,414 ms`**（`RTF = 0.253`），`640 ms` 环形预卷缓冲确保第 1–6 段段首零吞字，设置页配置的 3 条多别名纠错词表（`Obsidian`、`SenseVoice`、`[[双链笔记]]`）**`3/3`（100%）** 准确替换并注入 `M0-Test-Note.md`；`editor-bridge.ts` 已正式合入内存态合成 `ClipboardEvent("paste")` 以兼容 Lexical/ProseMirror 侧栏。
+- **物理扬声器 → 麦克风声学闭环**：在真实 Obsidian `1.15.1` 内调用 `toggleDictation("push-to-talk")` 开启 `48k->16k AudioWorklet` 真实麦克风采集，经 MacBook Pro 扬声器外放中文语音并松手冲刷后，准确完成离线转写、同音词替换（`黑曜石 -> Obsidian`）与 CM6 光标落盘，会话与状态条干净归位 `idle`。
+
 ---
 
 ## 2. 发版前四项真机声学必过门禁（M3 → M4 正式发版强制阻断）

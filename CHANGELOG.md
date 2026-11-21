@@ -6,6 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [Unreleased]
 
+### Added (M1 Desktop Offline WASM Dictation — 2026-11-22)
+
+- **Desktop 100% offline WASM dictation (`SenseVoice WASM`)**:
+  - Isolated `MEMFS` Web Worker runtime and client (`@voice-mode/browser`: `sherpa-worker-runtime`, `sherpa-worker-client`, `dictation-session`) running `Silero VAD` + `SenseVoice int8` (`sherpa-onnx@2.0.2`) with zero-copy `ArrayBuffer` transfer, post-init `FS.unlink` heap reclamation, `640 ms` pre-roll ring buffering, `toggle` / `single` / `push-to-talk` dictation modes, `Dictate single utterance` command, and configurable idle Worker auto-unload (`main.js` = `159.36 KB`).
+- **Explicit SHA256-verified external model manager**:
+  - `@voice-mode/core` pinned model/WASM SHA256 manifest & pure-JS USTAR tar extractor (`model-manifest`) paired with `@voice-mode/obsidian-plugin` `DesktopModelManager` & `desktop-fs`: user-triggered downloads from allowlisted HTTPS hosts (`huggingface.co` / `hf-mirror.com` and `registry.npmjs.org` / `registry.npmmirror.com`), hop-by-hop redirect validation, `.part` HTTP 206 resume, streaming 1 MB SHA256 verification, canonical `realpath` Vault-isolation guard (`~/.cache/voice-mode/models/` / `%LOCALAPPDATA%\voice-mode\models\`), and Settings UI controls (`Download or verify models`, `Cancel download`, `Open cache folder`, `Clear cached models`).
+- **Personal vocabulary replacement UI & universal editor/sidebar injection**:
+  - Visual multi-alias ASR replacement dictionary editor in Settings (`12 KB` UTF-8 budget, supporting proper nouns and `[[wikilinks]]`) and `editor-bridge` in-memory synthetic `ClipboardEvent("paste")` dispatch for Lexical/ProseMirror `contenteditable` sidebars (`Copilot 4.0.20`) without touching the OS clipboard.
+
 ### Verified (M0 Real-Device Spikes — 2026-11-22)
 
 - **M0 6-item real-device gate completed** on macOS `27.2.1` (Apple M2 Max, 32 GB) inside Obsidian `1.15.1` (`Electron 43.8.9` / `Chromium 150.0.7871.250`), archived in `docs/qa/acceptance-checklist.md`:
@@ -18,8 +27,7 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Planned (see `docs/plan/master-plan.md`)
 
-- **M1**: Desktop offline WASM dictation (`Silero VAD` + `SenseVoice int8`), Vault-external SHA256-verified model manager, custom ASR replacement UI, and editor/sidebar text injection.
-- **M2**: Spoken Markdown & pipe-table read-aloud, floating captions overlay, and AEC3 barge-in with `manual` fallback.
+- **M2**: Spoken Markdown & pipe-table read-aloud, floating captions size/width presets, optional `vits-wasm` / BYOK TTS, and AEC3 barge-in with `manual` fallback.
 - **M3**: Optional BYOK voice Q&A / transcript polish via `SecretStorage`, mobile graceful degradation verification, and 4 mandatory real-machine acoustic acceptance gates.
 
 ## [0.1.0] - 2026-11-21

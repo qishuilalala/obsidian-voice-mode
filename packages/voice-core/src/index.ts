@@ -99,6 +99,24 @@ export {
 } from './contracts.ts'
 
 export {
+  WASM_HOST_PRIMARY,
+  WASM_HOST_FALLBACK,
+  ALLOWED_WASM_HOSTNAMES,
+  SHERPA_WASM_RUNTIME_202,
+  LOCAL_MODEL_BUNDLE_IDS,
+  MODEL_BUNDLES,
+  wasmRedirectHostAllowed,
+  resolveModelFileUrls,
+  resolveWasmTarballUrls,
+  extractNpmTarEntries,
+  buildMemfsSherpaGlue,
+  type WasmRuntimeSpec,
+  type LocalModelBundleId,
+  type ModelBundleSpec,
+  type SherpaGlueSources,
+} from './model-manifest.ts'
+
+export {
   LLM_PRESETS,
   LlmRouterError,
   validateLoopbackUrl,
