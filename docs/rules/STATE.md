@@ -24,11 +24,11 @@
    - **`@voice-mode/core`**：`asr-engines.ts`（纯 `Uint8Array` RFC 7578 `multipart/form-data` + 44B WAV 编码的 `OpenAiCompatAsrTransport`，完美兼容桌面/移动 CORS 兜底）及 `llm-router.ts`（`395` 行，补齐回环免密与非 SSE JSON 兼容）；
    - **`@voice-mode/browser`**：零 WASM/Worker 依赖的 `CloudDictationSession`（`640 ms` 预卷缓冲、RMS 断句、60s 强切与 `sessionEpoch` 零泄漏取消）；
    - **`@voice-mode/obsidian-plugin` & `styles.css`**：`VoiceQaModal`（`ask-ai-about-note` 选区/笔记流式问答、按句跟读、单句口述提问与一键插入光标）、`enableLlmPolish` 听写后 4 层防幻觉润色（任意错误零丢字回退原文）、`vits-wasm -> sensevoice-wasm` 秒切即时卸载阻塞 Worker 与 `settingsWriteEpoch` 并发防覆盖；
-   - **真机门禁**：`data.json` 与 401/500 控制台/弹窗密钥扫描 **`0` 泄漏**；桌面真机 `A-1`、`A-2`（打断 `83–202 ms`）、`A-3`（断网 53.1s 六段混说词表 `3/3` 100% 命中）与 `A-4`（`manual` 外放 `120,005 ms` 零自打断 + 按住说话上屏归位）全部通过。
+   - **真机门禁**：`data.json` 与 401/500 控制台/弹窗密钥扫描 **`0` 泄漏**；桌面真机 `A-1`、`A-2`（打断 `83–202 ms`）、`A-3`（断网 53.1s 六段混说词表 `3/3` 100% 命中）、`A-4`（`manual` 外放 `120,005 ms` 零自打断 + 按住说话上屏归位）全部通过；`M-1`–`M-5` 已在 Apple `JavaScriptCore`（iOS `WKWebView` 引擎）+ Obsidian `1.15.1` `emulateMobile(true)` 无 Node 沙箱通过仿真与 5 分钟 26 次切笔记压测（JS 堆 `+1.70 MB`），并固化入 `check:release`。
 
 ### 尚未完成 / 待真机硬件与后续阶段落地
 
-- **M3 移动物理真机与真实付费 Key 复核（待人工/移动硬件）**：iOS/Android 物理设备实机验证（[docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md) §3 `M-1`–`M-5`：零 Node 崩溃、10 分钟无 WKWebView Jetsam 闪退、权限拒绝引导）及真实云端付费 API Key 端到端对话试听。
+- **M4 正式发版前人工/物理设备确认项**：iOS/Android 物理手机/平板硬件最终冒烟（核验真实移动 OS WebView Jetsam 与系统语音，[docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md) §3 `M-1`–`M-5`）及用户自有第三方云端付费 API Key 端到端对话试听。
 - **M4–M6**：完成上述实机确认后打正式无 `v` Tag 向 `obsidianmd/obsidian-releases` 提审上架；Wave 2 `sillytavern-voice-mode`；Wave 3 统一本机 `voice-daemon` 与 Chrome/Edge 扩展。
 
 ## 当前首要下一步（Next Action）

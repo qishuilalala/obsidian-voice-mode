@@ -1,6 +1,6 @@
 # 官方目录提审与开源发布增长手册（Launch Playbook）
 
-> **执行前提**：本手册中所有对外宣传素材、Demo 录制与社区提审均**严格延后至 M3 四项真机声学门禁全部通过后执行**。在当前 `0.1.0`（Alpha 架构初始化阶段），严禁提前提交 `obsidian-releases` PR 或对外宣称尚未实测通过的能力。
+> **执行状态（2026-11-22）**：M0–M3 桌面核心、四项发版声学必过门禁（`A-1`–`A-4`）、401/500 密钥脱敏审计、3 文件净室离线包检验及 Obsidian `app.emulateMobile(true)` + Apple `JavaScriptCore` 移动降级核验均已通过。待完成 iOS/Android 移动物理真机最终复核并由维护者打正式无 `v` Tag（如 `0.1.0` / `1.0.0`）后，即可按本手册提交 `obsidianmd/obsidian-releases` PR。
 
 ---
 
@@ -10,15 +10,15 @@ Obsidian 官方社区目录（截至 2026-11-21 共 10,682 插件，`voice-mode`
 
 ### 1.1 Manifest 与仓库结构硬检查
 
-- [ ] `manifest.json` 关键字段合规：
+- [x] `manifest.json` 关键字段合规（由 `scripts/check-release-gate.mjs` 每次构建强制门禁）：
   - `"id": "voice-mode"`（与 `community-plugins.json` PR 条目完全一致，不含 `obsidian` 字样）；
   - `"name": "Voice Mode"`（不以 `Obsidian` 开头或结尾）；
   - `"description"` 简洁明了、句尾带句号、不重复插件名、不含 “for Obsidian”；
   - `"minAppVersion": "1.11.4"`（显式对齐 `app.secretStorage` 最低版本，且 `versions.json` 含对应映射）；
-  - `"isDesktopOnly": false`（与移动端真实降级行为一致；若 M3 实测发现移动端存在不可接受阻塞，必须如实改为 `true` 再提审）。
-- [ ] **Git Tag 无 `v` 前缀**：正式发布 Tag 必须为 `1.0.0`（而非 `v1.0.0`），与 `manifest.json` `version` 逐字一致（已由 `.github/workflows/release.yml` 强制门禁）。
-- [ ] **GitHub Release 附件严格仅 3 个文件**：`main.js`、`manifest.json`、`styles.css`；严禁附加源码 zip、`.wasm`、模型文件或 source map；`main.js` 体积 `< 5 MB`（目标 `< 1 MB`）。
-- [ ] **根目录 `README.md` 为英文**：Obsidian 社区商店直接渲染仓库根目录 `README.md`；中英文顶部互链。
+  - `"isDesktopOnly": false`（已在 Apple `JavaScriptCore` 与 Obsidian `app.emulateMobile(true)` 无 Node 沙箱中通过 `M-1`–`M-5` 仿真验证；待物理真机最终确认）。
+- [x] **Git Tag 无 `v` 前缀**：正式发布 Tag 必须为裸语义化版本号（如 `0.1.0` 或 `1.0.0`，严禁 `v0.1.0`），与 `manifest.json` `version` 逐字一致（已由 `.github/workflows/release.yml` 强制门禁）。
+- [x] **GitHub Release 附件严格仅 3 个文件**：`main.js`、`manifest.json`、`styles.css`；严禁附加源码 zip、`.wasm`、模型文件或 source map；`main.js` 体积 `261.9 KB < 5 MB`（严守 `< 1 MB` 目标预算）。
+- [x] **根目录 `README.md` 为英文**：Obsidian 社区商店直接渲染仓库根目录 `README.md`；中英文顶部互链，且提前完整披露所有外部网络域名、SHA256 校验与隐私边界。
 
 ### 1.2 `ObsidianReviewBot` 高频拒审点排雷表
 
@@ -33,12 +33,23 @@ Obsidian 官方社区目录（截至 2026-11-21 共 10,682 插件，`voice-mode`
 | **移动端误调 Node API** | `isDesktopOnly: false` 但顶层静态 `import fs` 导致 iOS 报错 | 桌面专属文件缓存动态隔离并受 `Platform.isDesktopApp` 守卫 |
 | **虚假或夸大 PR 描述** | 提审 PR 未勾选全部校验项、缺少实机截图或宣称未实现功能 | 提审前全量复跑 `pnpm run check:all` 与 `docs/qa/acceptance-checklist.md` |
 
-### 1.3 提审步骤
+### 1.3 提审步骤与 `community-plugins.json` 标准条目
 
-1. 在干净测试 Vault 通过 BRAT 完整安装验证 1 周，修复首批早期用户反馈；
-2. 推送首个正式 Tag（如 `1.0.0`），确认 `.github/workflows/release.yml` 成功生成仅含 3 个附件的 GitHub Release；
-3. Fork `obsidianmd/obsidian-releases`，在 `community-plugins.json` **文件末尾**追加一条条目（不重排他人条目）；
-4. 提交 PR，等待 `ObsidianReviewBot` 首次自动评论；如出现任何 Warning/Required 项，24 小时内通过新小版本 Tag（如 `1.0.1`）修复并在 PR 中回复核验说明。
+1. 完成 iOS/Android 移动物理设备最终复核并在干净测试 Vault 验证 3 文件（`main.js`、`manifest.json`、`styles.css`）离线手动安装与 BRAT 安装；
+2. 确认 `CHANGELOG.md` 具备与目标版本号一致的 `## [<version>]` 章节，推送首个无 `v` 前缀正式 Tag（如 `0.1.0` 或 `1.0.0`），确认 `.github/workflows/release.yml` 成功生成仅含 3 个附件的 GitHub Release；
+3. Fork `obsidianmd/obsidian-releases`，在 `community-plugins.json` **文件末尾**追加以下与 `manifest.json` 严格对齐的条目（不重排他人条目）：
+
+```json
+  {
+    "id": "voice-mode",
+    "name": "Voice Mode",
+    "author": "qishuilalala",
+    "description": "Offline-first bilingual voice dictation, Markdown-aware read-aloud, and optional BYOK voice Q&A.",
+    "repo": "qishuilalala/obsidian-voice-mode"
+  }
+```
+
+4. 提交 PR，等待 `ObsidianReviewBot` 首次自动评论；如出现任何 Warning/Required 项，24 小时内通过新小版本 Tag（如 `0.1.1` / `1.0.1`）修复并在 PR 中回复核验说明。
 
 ---
 

@@ -627,6 +627,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           {
             name: "Model download host",
             desc: `Allowlisted HTTPS host (${ALLOWED_MODEL_HOSTNAMES.join(", ")}) for optional desktop model downloads stored outside the vault.`,
+            visible: () => capabilities.allowLocalWasmModels,
             control: {
               type: "dropdown",
               key: "modelMirrorHost",
@@ -1629,28 +1630,28 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     this.renderRuntimeBanner(containerEl);
     this.renderOfflineModelCard(containerEl);
 
-    new Setting(containerEl)
-      .setName("Model download host")
-      .setDesc(
-        `Allowlisted HTTPS host (${ALLOWED_MODEL_HOSTNAMES.join(", ")}) for optional desktop model downloads stored outside the vault.`,
-      )
-      .addDropdown((dropdown) => {
-        dropdown
-          .addOption(MODEL_HOST_PRIMARY, "Primary host (huggingface.co)")
-          .addOption(MODEL_HOST_FALLBACK, "Fallback mirror (hf-mirror.com)")
-          .setValue(this.host.settings.modelMirrorHost)
-          .onChange(async (value) => {
-            const validated = validateModelHost(value);
-            if (!validated) {
-              new Notice("Selected model host is not on the allowlist.");
-              return;
-            }
-            this.host.settings.modelMirrorHost = validated;
-            await this.host.saveSettings();
-          });
-      });
-
     if (capabilities.allowLocalWasmModels) {
+      new Setting(containerEl)
+        .setName("Model download host")
+        .setDesc(
+          `Allowlisted HTTPS host (${ALLOWED_MODEL_HOSTNAMES.join(", ")}) for optional desktop model downloads stored outside the vault.`,
+        )
+        .addDropdown((dropdown) => {
+          dropdown
+            .addOption(MODEL_HOST_PRIMARY, "Primary host (huggingface.co)")
+            .addOption(MODEL_HOST_FALLBACK, "Fallback mirror (hf-mirror.com)")
+            .setValue(this.host.settings.modelMirrorHost)
+            .onChange(async (value) => {
+              const validated = validateModelHost(value);
+              if (!validated) {
+                new Notice("Selected model host is not on the allowlist.");
+                return;
+              }
+              this.host.settings.modelMirrorHost = validated;
+              await this.host.saveSettings();
+            });
+        });
+
       new Setting(containerEl)
         .setName("Custom external model cache path")
         .setDesc(

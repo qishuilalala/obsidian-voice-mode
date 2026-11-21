@@ -1,6 +1,8 @@
+import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import vm from "node:vm";
 
 const ROOT_DIR = process.cwd();
 const SEMVER_RE = /^\d+\.\d+\.\d+(?:-[0-9A-Za-z.-]+)?$/;
@@ -463,10 +465,216 @@ function checkRepoHygiene() {
   }
 }
 
+async function checkMobileCleanRoomRuntime() {
+  const mainJsPath = path.join(ROOT_DIR, "main.js");
+  const manifestPath = path.join(ROOT_DIR, "manifest.json");
+  if (!fs.existsSync(mainJsPath) || !fs.existsSync(manifestPath)) {
+    return;
+  }
+
+  const mainCode = fs.readFileSync(mainJsPath, "utf8");
+  const manifest = JSON.parse(fs.readFileSync(manifestPath, "utf8"));
+
+  try {
+    const sandbox = {
+      module: { exports: {} },
+      exports: {},
+      TextEncoder,
+      TextDecoder,
+      URL,
+      URLSearchParams,
+      AbortController,
+      Uint8Array,
+      ArrayBuffer,
+      DataView,
+      Float32Array,
+      Int16Array,
+      Promise,
+      Map,
+      Set,
+      WeakMap,
+      Math,
+      Date,
+      JSON,
+      RegExp,
+      Error,
+      TypeError,
+      RangeError,
+      Number,
+      String,
+      Boolean,
+      Object,
+      Array,
+      Symbol,
+      setTimeout,
+      clearTimeout,
+      queueMicrotask,
+      fetch: () => {
+        throw new Error("Unexpected network fetch during plugin startup.");
+      },
+      require: (id) => {
+        if (id !== "obsidian") {
+          throw new Error(`Forbidden runtime require("${id}") on mobile.`);
+        }
+        return {
+          Plugin: class {
+            constructor(app, m) {
+              this.app = app;
+              this.manifest = m;
+              this.cmds = [];
+            }
+            async loadData() {
+              return { asrEngine: "sensevoice-wasm", ttsEngine: "vits-wasm" };
+            }
+            async saveData() {}
+            addCommand(c) {
+              this.cmds.push(c);
+              return c;
+            }
+            addRibbonIcon() {}
+            addSettingTab(t) {
+              this.settingTab = t;
+            }
+            addStatusBarItem() {
+              throw new Error("Desktop status bar must not mount when Platform.isMobile is true.");
+            }
+            registerEvent() {}
+            registerDomEvent() {}
+          },
+          PluginSettingTab: class {
+            constructor(app, p) {
+              this.app = app;
+              this.plugin = p;
+            }
+          },
+          Modal: class {},
+          Setting: class {},
+          Notice: class {},
+          SecretComponent: class {},
+          MarkdownView: class {},
+          Platform: {
+            isMobile: true,
+            isDesktop: false,
+            isWin: false,
+            isLinux: false,
+            isSafari: true,
+          },
+          requireApiVersion: () => true,
+          requestUrl: () => {
+            throw new Error("Unexpected requestUrl call during plugin startup.");
+          },
+        };
+      },
+    };
+    sandbox.globalThis = sandbox;
+    sandbox.window = sandbox;
+    sandbox.activeWindow = sandbox;
+    sandbox.activeDocument = { activeElement: null, body: null };
+
+    vm.runInNewContext(mainCode, sandbox, { filename: "mobile-cleanroom/main.js" });
+    const PluginCtor = sandbox.module.exports.default ?? sandbox.module.exports;
+    const instance = new PluginCtor(
+      {
+        secretStorage: { getSecret: () => null, setSecret: () => {}, listSecrets: () => [] },
+        workspace: { on: () => ({}), getActiveViewOfType: () => null },
+        vault: { adapter: {} },
+      },
+      manifest,
+    );
+    await instance.onload();
+    if (instance.capabilities?.allowLocalWasmModels !== false) {
+      throw new Error("Expected allowLocalWasmModels === false under Platform.isMobile.");
+    }
+    const groups = instance.settingTab.getSettingDefinitions();
+    if (!Array.isArray(groups) || groups.length === 0) {
+      throw new Error("Expected mobile setting groups from getSettingDefinitions().");
+    }
+    instance.onunload();
+    pass(
+      `Mobile clean-room VM check passed (zero Node globals, zero startup network calls, ${instance.cmds.length} commands)`,
+    );
+  } catch (err) {
+    fail(
+      `Mobile clean-room VM check failed: ${err instanceof Error ? err.message : String(err)}`,
+    );
+    return;
+  }
+
+  const macosJscPath =
+    "/System/Library/Frameworks/JavaScriptCore.framework/Versions/A/Helpers/jsc";
+  if (process.platform === "darwin" && fs.existsSync(macosJscPath)) {
+    try {
+      const jscOut = execFileSync(
+        macosJscPath,
+        [
+          "-e",
+          `
+            globalThis.TextEncoder = class { encode(s = "") { return new Uint8Array(String(s).length); } };
+            globalThis.TextDecoder = class { decode() { return ""; } };
+            globalThis.fetch = () => { throw new Error("unexpected startup fetch"); };
+            globalThis.window = globalThis;
+            globalThis.activeWindow = globalThis;
+            globalThis.activeDocument = { activeElement: null, body: null };
+            const src = readFile("main.js");
+            const mod = { exports: {} };
+            const fn = new Function("module", "exports", "require", src);
+            const obsidianMock = {
+              Plugin: class {
+                constructor(app, m) { this.app = app; this.manifest = m; this.cmds = []; }
+                async loadData() { return {}; }
+                async saveData() {}
+                addCommand(c) { this.cmds.push(c); return c; }
+                addRibbonIcon() {}
+                addSettingTab(t) { this.settingTab = t; }
+                addStatusBarItem() { throw new Error("unexpected mobile status bar"); }
+                registerEvent() {}
+                registerDomEvent() {}
+              },
+              PluginSettingTab: class { constructor(app, p) { this.app = app; this.plugin = p; } },
+              Modal: class {},
+              Setting: class {},
+              Notice: class {},
+              SecretComponent: class {},
+              MarkdownView: class {},
+              Platform: { isMobile: true, isDesktop: false, isWin: false, isLinux: false, isSafari: true },
+              requireApiVersion: () => true,
+              requestUrl: () => { throw new Error("unexpected startup requestUrl"); }
+            };
+            fn(mod, mod.exports, (id) => {
+              if (id === "obsidian") return obsidianMock;
+              throw new Error("FORBIDDEN_REQUIRE:" + id);
+            });
+            const Ctor = mod.exports.default || mod.exports;
+            const inst = new Ctor({
+              secretStorage: { getSecret: () => null, setSecret: () => {}, listSecrets: () => [] },
+              workspace: { on: () => ({}), getActiveViewOfType: () => null },
+              vault: { adapter: {} }
+            }, { id: "voice-mode", version: "0.1.0" });
+            let failed = null;
+            inst.onload().then(() => { inst.onunload(); print("JSC_OK"); }, (e) => { failed = e; });
+            drainMicrotasks();
+            if (failed) throw failed;
+          `,
+        ],
+        { cwd: ROOT_DIR, encoding: "utf8", timeout: 10_000 },
+      );
+      if (!jscOut.includes("JSC_OK")) {
+        throw new Error(`Unexpected JavaScriptCore output: ${jscOut.trim()}`);
+      }
+      pass("Apple JavaScriptCore (iOS WKWebView engine) bundle parse & mobile lifecycle check passed");
+    } catch (err) {
+      fail(
+        `Apple JavaScriptCore check failed: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+  }
+}
+
 checkManifestAndVersions();
 checkBundleArtifacts();
 checkArchitectureBoundaries();
 checkRepoHygiene();
+await checkMobileCleanRoomRuntime();
 
 console.log(
   `\n[release-gate] Summary: ${passes.length} passed, ${warnings.length} warnings, ${errors.length} failed.`,

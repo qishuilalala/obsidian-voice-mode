@@ -1,6 +1,6 @@
 # Obsidian Voice Mode 完整实施规划（Master Plan）
 
-> **当前基线**：`0.1.0`（Alpha 架构初始化阶段，三包骨架与门禁就绪）。本规划仅以截至 2026-11-21 的实测基准与一手技术事实立项，**未通过真机 Spike 验证的能力一律标记为待验证或计划中，绝不提前宣称已可用**。
+> **当前基线**：`0.1.0`（**M0–M3 桌面真机闭环、四项发版声学门禁、密钥脱敏审计与 Obsidian 移动仿真 + Apple JavaScriptCore 降级门禁均已通过**；待 iOS/Android 移动物理设备真机最终复核与正式无 `v` Tag 提审 `obsidian-releases`）。第 1 节保留 2026-11-21 立项实测基准，最新实测报告见 [docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md) 与 [docs/rules/STATE.md](../rules/STATE.md)。
 
 ---
 

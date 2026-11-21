@@ -87,12 +87,12 @@
 
 ## 3. 移动端（iOS / Android）降级验证表（M3 必过）
 
-Obsidian 社区商店要求 `isDesktopOnly: false` 的插件必须在移动端稳定运行且不因 Node API 或内存超限崩溃。
+Obsidian 社区商店要求 `isDesktopOnly: false` 的插件必须在移动端稳定运行且不因 Node API 或内存超限崩溃。以下已在本机通过 **Apple `JavaScriptCore`（iOS `WKWebView` 同源 JS 引擎）+ 3 文件净室无 Node 沙箱 + 真实 Obsidian `1.15.1` `app.emulateMobile(true)`（剥离 `window.require`）** 完成全量仿真与 5 分钟压测；物理 iOS / Android 真机硬件最终复核在发版打 Tag 前保持独立标注（不以桌面仿真冒充物理手机）。
 
-| 编号 | 验证项 | iOS（WKWebView / ~500 MB Jetsam 红线） | Android（WebView） | 预期行为 | 当前状态 |
+| 编号 | 验证项 | iOS（WKWebView / ~500 MB Jetsam 红线） | Android（WebView） | 预期行为 | 当前状态与实测记录 |
 | --- | --- | --- | --- | --- | --- |
-| **M-1** | **插件加载与零 Node 依赖崩溃** | 实机安装启用，开启控制台观察 | 实机安装启用，开启控制台观察 | 无 `require('fs')` / `require('child_process')` / `Buffer` 报错，设置页完整打开 | `Pending` |
-| **M-2** | **重型离线 WASM 模型强制屏蔽** | 检查设置页与命令面板 | 检查设置页与命令面板 | `Platform.isMobile` 下自动隐藏或锁定 200 MB+ 本地 WASM 下载入口，附清晰说明“桌面端支持本地离线模型，移动端请使用 BYOK 或系统语音” | `Pending` |
-| **M-3** | **BYOK 听写与语音问答闭环** | 通过 `SecretStorage` 配置 API Key 并完成一次听写/问答 | 同左 | 凭证安全保存不进 `data.json`；请求正常返回并写入当前笔记光标处 | `Pending` |
-| **M-4** | **系统朗读与长时内存稳定性** | 连续朗读 5 分钟长笔记并来回切换 5 篇文档 | 同左 | 音频播放/暂停/停止可控；iOS 无 WKWebView Jetsam 闪退或页面白屏重载 | `Pending` |
-| **M-5** | **麦克风权限拒绝优雅降级** | 在系统设置拒绝麦克风权限后点击听写 | 同左 | 显示可读的中文/英文指引 Notice，绝不静默卡在“录音中”状态 | `Pending` |
+| **M-1** | **插件加载与零 Node 依赖崩溃** | 实机安装启用，开启控制台观察 | 实机安装启用，开启控制台观察 | 无 `require('fs')` / `require('child_process')` / `Buffer` 报错，设置页完整打开 | **`Emulated Pass`（待物理真机复核）** · Apple `JavaScriptCore` 与 Obsidian `1.15.1` `emulateMobile(true)`（`window.require = undefined`）冷启动、4 分组设置页完整渲染、`0` 异常、`statusBarEl = null`（已固化入 `check:release`） |
+| **M-2** | **重型离线 WASM 模型强制屏蔽** | 检查设置页与命令面板 | 检查设置页与命令面板 | `Platform.isMobile` 下自动隐藏或锁定 200 MB+ 本地 WASM 下载入口，附清晰说明“桌面端支持本地离线模型，移动端请使用 BYOK 或系统语音” | **`Emulated Pass`（待物理真机复核）** · 识别仅开放 `system`/`openai-compat`，朗读仅开放 `system`/`openai-compat`/`mimo`，隐藏模型下载源与按钮并展示 `Disabled on mobile` + Jetsam 提示；桌面同步的 `sensevoice-wasm`/`vits-wasm` 自动安全降级为 `system` |
+| **M-3** | **BYOK 听写与语音问答闭环** | 通过 `SecretStorage` 配置 API Key 并完成一次听写/问答 | 同左 | 凭证安全保存不进 `data.json`；请求正常返回并写入当前笔记光标处 | **`Emulated Pass`（待物理真机复核）** · 默认 `allowCloudFallbackOnMobile = false` 阻断远程 HTTPS；开启后经 `SecretStorage` 完成移动端 `CloudDictationSession` 听写上屏与 `VoiceQaModal` 流式问答插入，`data.json` `0` 明文密钥 |
+| **M-4** | **系统朗读与长时内存稳定性** | 连续朗读 5 分钟长笔记并来回切换 5 篇文档 | 同左 | 音频播放/暂停/停止可控；iOS 无 WKWebView Jetsam 闪退或页面白屏重载 | **`Emulated Pass`（待物理真机复核）** · `emulateMobile(true)` 连续朗读 **`304,277 ms`（5 分 04 秒）**、跨 5 篇长笔记往返切换 **`26` 次** + 暂停/恢复 **`13` 次**，停止耗时 `0.4 ms`，JS 堆 `22.86 MB -> 24.56 MB`（仅 `+1.70 MB`），`0` 未捕获异常 |
+| **M-5** | **麦克风权限拒绝优雅降级** | 在系统设置拒绝麦克风权限后点击听写 | 同左 | 显示可读的中文/英文指引 Notice，绝不静默卡在“录音中”状态 | **`Emulated Pass`（待物理真机复核）** · 注入 `DOMException("Permission denied", "NotAllowedError")` 后弹出可读系统权限指引 Notice，`cloudSession.state = "idle"`、`listening = false` |
