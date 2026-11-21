@@ -1,0 +1,47 @@
+name: Feature Request
+description: Propose a focused improvement or new capability for Obsidian Voice Mode.
+title: "[Feature]: "
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Please check `docs/plan/master-plan.md` first to see if your idea is already scheduled or explicitly listed under Non-Goals.
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem or workflow gap
+      description: What real writing, reading, or voice workflow is blocked or painful today?
+      placeholder: When I am reviewing long Markdown notes with tables ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: Proposed behavior
+      description: Describe the expected user interaction and any desktop/mobile boundary considerations.
+    validations:
+      required: true
+
+  - type: dropdown
+    id: scope
+    attributes:
+      label: Target layer
+      options:
+        - "@voice-mode/core (text segmentation, dictionary, BYOK router)"
+        - "@voice-mode/browser (AudioWorklet, AEC3 probe, playback queue)"
+        - "@voice-mode/obsidian-plugin (commands, UI, settings, sidebar injection)"
+        - "Offline WASM / optional voice-daemon runtime"
+        - "Documentation / localization"
+    validations:
+      required: true
+
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Privacy, bundle size, or Obsidian policy impact
+      description: Does this require network access, external downloads, new permissions, or extra runtime memory?
+    validations:
+      required: false

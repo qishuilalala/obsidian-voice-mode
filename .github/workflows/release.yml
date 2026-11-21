@@ -1,0 +1,130 @@
+name: Release
+
+# Triggered by Obsidian-compliant semver tags WITHOUT a leading "v" (e.g. 0.1.0, 1.0.0).
+# Uploads ONLY main.js, manifest.json, and styles.css as required by obsidianmd/obsidian-releases.
+
+on:
+  push:
+    tags:
+      - '[0-9]*.[0-9]*.[0-9]*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: 'Existing semver tag without leading v (e.g. 0.1.0)'
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  release:
+    name: Build & Publish Obsidian Release
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    permissions:
+      contents: write
+    env:
+      TAG: ${{ inputs.tag || github.ref_name }}
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ env.TAG }}
+          fetch-depth: 0
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Validate tag, manifest.json, versions.json, and CHANGELOG.md
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "$TAG" =~ ^[0-9]+\.[0-9]+\.[0-9]+(-[0-9A-Za-z.-]+)?$ ]]; then
+            echo "::error::Invalid tag '$TAG'. Obsidian releases require semver without leading 'v' (e.g. 0.1.0)."
+            exit 1
+          fi
+
+          node -e '
+            const fs = require("node:fs");
+            const tag = process.env.TAG;
+            const manifest = JSON.parse(fs.readFileSync("manifest.json", "utf8"));
+            const pkg = JSON.parse(fs.readFileSync("package.json", "utf8"));
+            const versions = JSON.parse(fs.readFileSync("versions.json", "utf8"));
+            if (manifest.id !== "voice-mode") {
+              console.error(`manifest.json id mismatch: expected "voice-mode", got "${manifest.id}"`);
+              process.exit(1);
+            }
+            if (manifest.version !== tag) {
+              console.error(`Tag "${tag}" != manifest.json version "${manifest.version}"`);
+              process.exit(1);
+            }
+            if (pkg.version !== tag) {
+              console.error(`Tag "${tag}" != package.json version "${pkg.version}"`);
+              process.exit(1);
+            }
+            if (versions[tag] !== manifest.minAppVersion) {
+              console.error(`versions.json["${tag}"] (${versions[tag]}) != manifest.minAppVersion (${manifest.minAppVersion})`);
+              process.exit(1);
+            }
+            const changelogLines = fs.readFileSync("CHANGELOG.md", "utf8").split(/\r?\n/);
+            if (!changelogLines.some((line) => line.startsWith(`## [${tag}]`))) {
+              console.error(`CHANGELOG.md is missing a "## [${tag}]" section.`);
+              process.exit(1);
+            }
+          '
+
+      - name: Install pnpm & dependencies
+        run: npm install -g pnpm@12.21.0 --force && pnpm install --frozen-lockfile
+
+      - name: Run full verification gate & production build
+        run: pnpm run check:all
+
+      - name: Verify Obsidian release assets & Sync size budget
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in main.js manifest.json styles.css; do
+            if [ ! -s "$f" ]; then
+              echo "::error::Required release artifact '$f' is missing or empty."
+              exit 1
+            fi
+          done
+
+          MAIN_BYTES=$(wc -c < main.js | tr -d ' ')
+          LIMIT_BYTES=$((5 * 1024 * 1024))
+          echo "main.js size: ${MAIN_BYTES} bytes (limit: ${LIMIT_BYTES} bytes)"
+          if [ "$MAIN_BYTES" -ge "$LIMIT_BYTES" ]; then
+            echo "::error::main.js exceeds Obsidian Sync 5 MB budget (${MAIN_BYTES} bytes)."
+            exit 1
+          fi
+
+      - name: Publish GitHub Release (main.js, manifest.json, styles.css only)
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            echo "Release $TAG already exists; skipping."
+            exit 0
+          fi
+
+          awk -v v="$TAG" '
+            $0 ~ "^## " { if (f) exit; if (index($0, "## [" v "]") == 1) f = 1; next }
+            f
+          ' CHANGELOG.md > "$RUNNER_TEMP/release-notes.md"
+
+          PRERELEASE_FLAG=()
+          if [[ "$TAG" == *-* ]]; then
+            PRERELEASE_FLAG+=(--prerelease)
+          fi
+
+          gh release create "$TAG" \
+            main.js \
+            manifest.json \
+            styles.css \
+            --title "$TAG" \
+            --notes-file "$RUNNER_TEMP/release-notes.md" \
+            --verify-tag \
+            "${PRERELEASE_FLAG[@]}"

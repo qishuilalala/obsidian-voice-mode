@@ -1,0 +1,85 @@
+name: Bug Report
+description: Report a reproducible bug in Obsidian Voice Mode (desktop or mobile).
+title: "[Bug]: "
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Thank you for reporting a bug! Please remove any API keys, private audio recordings, or personal vault contents before submitting.
+        For security vulnerabilities, use **Security → Report a vulnerability** instead of a public issue.
+
+  - type: input
+    id: plugin_version
+    attributes:
+      label: Plugin version
+      placeholder: e.g. 0.1.0
+    validations:
+      required: true
+
+  - type: input
+    id: obsidian_version
+    attributes:
+      label: Obsidian version & installer version
+      description: Found in Settings → About (both app version and installer / Electron version).
+      placeholder: e.g. Obsidian 1.15.0 (installer 1.14.4 / Electron 43.7.5)
+    validations:
+      required: true
+
+  - type: dropdown
+    id: platform
+    attributes:
+      label: Operating system / platform
+      options:
+        - macOS (Apple Silicon)
+        - macOS (Intel)
+        - Windows (x64)
+        - Windows (ARM64)
+        - Linux (x64)
+        - iOS / iPadOS
+        - Android
+    validations:
+      required: true
+
+  - type: dropdown
+    id: audio_setup
+    attributes:
+      label: Audio hardware & mode (if audio-related)
+      options:
+        - Not audio-related
+        - Built-in speakers & microphone
+        - Wired headphones / headset
+        - Bluetooth headset
+        - External USB / audio interface
+    validations:
+      required: false
+
+  - type: textarea
+    id: steps
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Open a note with ...
+        2. Run command ...
+        3. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected_actual
+    attributes:
+      label: Expected vs. actual behavior
+      placeholder: |
+        Expected: ...
+        Actual: ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Sanitized console logs or error messages
+      description: Do NOT paste API keys, auth headers, or private note contents.
+      render: text
+    validations:
+      required: false
