@@ -1,6 +1,6 @@
 # Obsidian Voice Mode 完整实施规划（Master Plan）
 
-> **当前基线**：`0.1.0`（**M0–M3 桌面真机闭环、四项发版声学门禁、密钥脱敏审计与 Obsidian 移动仿真 + Apple JavaScriptCore 降级门禁均已通过**；待 iOS/Android 移动物理设备真机最终复核与正式无 `v` Tag 提审 `obsidian-releases`）。第 1 节保留 2026-11-21 立项实测基准，最新实测报告见 [docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md) 与 [docs/rules/STATE.md](../rules/STATE.md)。
+> **阅读说明**：第 1 节保留 2026-11-21 的立项基准；以下各节记录原定目标。M0–M6 的实测结果见[验收记录](../qa/acceptance-checklist.md)，工作进度见[当前状态](../rules/STATE.md)。现阶段仅维护 GitHub 源码。M4 的发布准备已完成，版本发布、目录提审及商店上架均未执行。
 
 ---
 
@@ -11,7 +11,7 @@
 1. **外部依赖安装断崖**：Obsidian 官方社区目录（2026-11-21 实测总计 **10,682 款插件**，且插件 ID **`voice-mode` 空闲可用**）呈现极清晰的对照实验——零外置服务的语音/AI 插件能跑出量级下载（`Copilot` 330 万、`Smart Connections` 120 万、`Whisper` 6 万、`Aloud` 20,134、`Speech Kit` 6,000），而功能贴合中文的 `Local Speech Recognition` 仅因要求用户自行部署 `sherpa-onnx-offline-websocket-server` 滞留在 **181 次下载**，需另装菜单栏 App 的 `Otoha TTS` 仅 **1,000 次下载**。因此首装体验必须**零外部守护进程**。
 2. **Electron V8 内存笼与 WASM 内存墙**：Obsidian 桌面端 Installer 与 App 版本独立升级——**Installer 1.14.4 内置 Electron 43.7.5，Installer 1.15.1 已升至 Electron 43.8.9**，两者均启用 V8 Memory Cage 禁止 N-API 返回堆外 `External Buffer`，导致原生 `sherpa-onnx-node`（Kokoro 高速推理）100% 抛出 `External buffers are not allowed`；而在浏览器/渲染进程 WASM 中，`sherpa-onnx` v1.13.7 存在 `kokoro-int8` 缺失 `ConvInteger(10)` 静默输出全零静音缺陷（`k2-fsa/sherpa-onnx#3960`），且三大模型同时常驻 32 位 WASM 堆易冲向 1.8–2.6 GB OOM。
 3. **本机真实 WASM 基准（实测数据，非估算）**：
-   - 测试环境：Apple Silicon macOS、Node `v24.21.0`、`sherpa-onnx` WASM 14 MB、5 秒中文真实语音片段，采集日期 **2026-11-21**（注：此为接入 Obsidian 前的独立本机基准，Obsidian 桌面 Electron Web Worker 实测待 M0 完成）。
+   - 测试环境：Apple Silicon macOS、Node `v24.21.0`、`sherpa-onnx` WASM 14 MB、5 秒中文真实语音片段，采集日期 **2026-11-21**（注：此为接入 Obsidian 前的独立本机基准，Obsidian 桌面 Electron Web Worker 的后续数据见 M0 验收记录）。
    | 引擎 / 模型（WASM） | 冷加载耗时 | RTF（实时率） | 峰值 RSS | 架构含义 |
    | --- | ---: | ---: | ---: | --- |
    | `Silero VAD` | **27 ms** | — | 轻量常驻 | 可随默认档常驻前端 Worker，支撑低延迟端点与打断检测 |
@@ -40,7 +40,7 @@ flowchart LR
 
 | 波次 | 目标产品与仓库 | 战略定位 | 核心复用与协同 |
 | --- | --- | --- | --- |
-| **Wave 1**（当前主线，M0–M4） | **`qishuilalala/obsidian-voice-mode`**（官方插件 ID `voice-mode`） | **口碑与 Star 首爆主战场**：填补 Obsidian 社区“零外置服务 + 中文/中英混说离线听写 + Markdown 表格降噪朗读 + Copilot 侧栏零耦合语音输入”空白 | 在本仓打磨零依赖 `@voice-mode/core` 与 `@voice-mode/browser`，建立完整 CI/安全/声学验收标杆 |
+| **Wave 1**（M0–M4） | **`qishuilalala/obsidian-voice-mode`**（插件 ID `voice-mode`） | **口碑与 Star 首爆主战场**：填补 Obsidian 社区“零外置服务 + 中文/中英混说离线听写 + Markdown 表格降噪朗读 + Copilot 侧栏零耦合语音输入”空白 | 在本仓打磨零依赖 `@voice-mode/core` 与 `@voice-mode/browser`，建立完整 CI/安全/声学验收标杆 |
 | **Wave 2**（M5，2–3 周连发） | **`sillytavern-voice-mode`** | **垂直高粘性情感语音双爆款**：利用 SillyTavern 无沙箱浏览器 + `STREAM_TOKEN_RECEIVED` / `stopGeneration()`，以全双工 AEC3 打断 + 情感标签 DSL 形成对半双工竞品的体验代差 | 直接复用 `@voice-mode/core`（分句、情感 DSL、词表）与 `@voice-mode/browser`（AudioWorklet、AEC3 探针、播放队列） |
 | **Wave 3**（M6，基础设施收口） | **统一跨宿主本机 `voice-daemon`** + **Chrome / Edge MV3 扩展** + **反哺 `dsh-voice-mode`** | **破除 Electron V8 内存笼与浏览器 OOM 天花板**：一份本机缓存（`~/.cache/voice-mode/models`）共享服务多宿主，解锁原生 `sherpa-onnx-node` Kokoro 103 音色与 Zipformer2 + SenseVoice 满血栈 | Chrome/Edge 扩展吃大众搜索流量；`dsh-voice-mode` 回接 `@voice-mode/core` 降低双仓维护税；按需低成本产出思源 / Zotero / MCP 薄壳 |
 
@@ -125,13 +125,13 @@ flowchart LR
   - `llm-router` 源码 `< 400 行`、零第三方 runtime 依赖、强制 `redirect: 'error'` 与错误体先脱敏后截断；
   - `data.json` 与控制台日志明文密钥扫描 **0 命中**；
   - 4 项真机声学门禁 100% 通过且留下日期、设备、Obsidian 版本实测记录；
-  - iOS 真机运行 10 分钟内存稳定，无 WKWebView Jetsam 闪退。
+  - 原定实体 iPhone 验收目标为连续运行 10 分钟且无内存压力导致的退出；目前只记录了模拟器结果。
 - **明确不做（Non-Goals）**：不内置付费云中继或账号登录体系；不重造全库向量数据库（把全库 RAG 留给用户已装的 Copilot / Smart Connections）。
 - **风险回退预案**：若某些国产模型端点在移动端 WebView 遇浏览器 CORS 限制，走 Obsidian 官方 `requestUrl` 代理路径（非流式兜底或按平台文档分流），并在设置页标注已实测兼容列表。
 
 ---
 
-### M4：`obsidian-releases` 官方目录提审 + 全网病毒式发布
+### M4：发布准备与 Obsidian 社区目录提审
 
 - **交付物**：
   - 完成无 `v` 前缀正式 Tag（如 `1.0.0`）发布，GitHub Release 严格仅含 `main.js`、`manifest.json`、`styles.css`；
@@ -154,7 +154,7 @@ flowchart LR
 ### M5：Wave 2 — `sillytavern-voice-mode` 全双工情感语音连发（2–3 周）
 
 - **交付物**：
-  - 基于本仓抽离并发布的 `@voice-mode/core` 与 `@voice-mode/browser`，建立独立仓库 `sillytavern-voice-mode`；
+  - 基于本仓构建并同步到下游的 `@voice-mode/core` 与 `@voice-mode/browser`，建立独立仓库 `sillytavern-voice-mode`；
   - 对接 SillyTavern 前端 `STREAM_TOKEN_RECEIVED` 逐 Token 按句流式起播、`stopGeneration()` 联动 AEC3 外放随时打断、多角色卡 `voiceMap` 与旁白/对白分音色；
   - 落地情感标签 DSL（继承 `dsh-voice-mode` ADR-0007 设计并补完可选 Prompt 注入，支持停顿与情绪切换）；
   - 一键安装的纯 UI 扩展（可零改配置直连本地/BYOK 端点）+ 可选一键脚本启用 Server Plugin 后端。

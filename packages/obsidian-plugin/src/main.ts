@@ -1,3 +1,4 @@
+import { t, type UiMessage } from "./i18n.ts";
 import {
   DaemonClient,
   MODEL_BUNDLES,
@@ -122,7 +123,7 @@ const STATUS_CLASS_MAP: Readonly<Record<VoiceStatusKind, string>> = {
   error: "vm-is-error",
 };
 
-const STATUS_LABEL_MAP: Readonly<Record<VoiceStatusKind, string>> = {
+const STATUS_LABEL_MAP: Readonly<Record<VoiceStatusKind, UiMessage>> = {
   idle: "Voice idle",
   listening: "Listening",
   busy: "Transcribing",
@@ -244,24 +245,24 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           this.handlePlaybackStateChange(state);
         },
         onSentenceStart: (sentence) => {
-          this.showSubtitleOverlay("Reading aloud", sentence, undefined, true);
+          this.showSubtitleOverlay(t("Reading aloud"), sentence, undefined, true);
         },
         onEngineFallback: (requested) => {
           if (requested === "kokoro-daemon") {
             new Notice(
-              "Local Kokoro voice daemon is not connected; falling back to system speech synthesis.",
+              t("Local Kokoro voice daemon is not connected; falling back to system speech synthesis."),
             );
             return;
           }
           new Notice(
-            `Speech engine "${requested}" is unavailable; falling back to system speech synthesis.`,
+            t("Speech engine \"{0}\" is unavailable; falling back to system speech synthesis.", requested),
           );
         },
         onDrop: () => {
           if (!this.overflowNotified) {
             this.overflowNotified = true;
             new Notice(
-              "Selection exceeds the 2,000-sentence read-aloud queue limit; trailing sentences were omitted.",
+              t("Selection exceeds the 2,000-sentence read-aloud queue limit; trailing sentences were omitted."),
             );
           }
         },
@@ -269,7 +270,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           const message = redactSecrets(err instanceof Error ? err.message : String(err));
           this.stopReadAloudSilently();
           this.setStatus("error");
-          new Notice(`Read-aloud failed: ${message}`);
+          new Notice(t("Read-aloud failed: {0}", message));
         },
       },
       () => activeWindow,
@@ -310,13 +311,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       }
     });
 
-    this.addRibbonIcon("mic", "Toggle voice dictation", () => {
+    this.addRibbonIcon("mic", t("Toggle voice dictation"), () => {
       void this.toggleDictation();
     });
 
     this.addCommand({
       id: "toggle-dictation",
-      name: "Toggle voice dictation",
+      name: t("Toggle voice dictation"),
       callback: () => {
         void this.toggleDictation();
       },
@@ -324,7 +325,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     this.addCommand({
       id: "dictate-single-utterance",
-      name: "Dictate single utterance",
+      name: t("Dictate single utterance"),
       callback: () => {
         void this.toggleDictation("single");
       },
@@ -332,7 +333,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     this.addCommand({
       id: "read-aloud",
-      name: "Read selection or note aloud",
+      name: t("Read selection or note aloud"),
       callback: () => {
         void this.readSelectionOrNoteAloud();
       },
@@ -340,7 +341,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     this.addCommand({
       id: "pause-resume-read-aloud",
-      name: "Pause or resume read-aloud",
+      name: t("Pause or resume read-aloud"),
       callback: () => {
         this.togglePauseReadAloud();
       },
@@ -348,7 +349,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     this.addCommand({
       id: "skip-read-aloud-sentence",
-      name: "Skip current read-aloud sentence",
+      name: t("Skip current read-aloud sentence"),
       callback: () => {
         this.skipReadAloudSentence();
       },
@@ -356,7 +357,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     this.addCommand({
       id: "stop-read-aloud",
-      name: "Stop read-aloud",
+      name: t("Stop read-aloud"),
       callback: () => {
         this.stopReadAloud();
       },
@@ -364,7 +365,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     this.addCommand({
       id: "ask-ai-about-note",
-      name: "Ask AI about selection or note",
+      name: t("Ask AI about selection or note"),
       callback: () => {
         this.openVoiceQaModal();
       },
@@ -372,7 +373,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     this.addCommand({
       id: "check-runtime-status",
-      name: "Check voice runtime status",
+      name: t("Check voice runtime status"),
       callback: () => {
         void this.showRuntimeStatusNotice();
       },
@@ -601,7 +602,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   ): Promise<DictationStackStatus> {
     const manager = this.ensureDesktopModelManager();
     if (!manager) {
-      throw new Error("Local offline WASM models are only available on desktop.");
+      throw new Error(t("Local offline WASM models are only available on desktop."));
     }
     if (this.downloadAbortController) {
       return manager.downloadDictationStack({
@@ -621,10 +622,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.settings.asrEngine = "sensevoice-wasm";
         await this.saveSettings();
         new Notice(
-          "Offline dictation models verified and ready. Switched recognition engine to SenseVoice WASM.",
+          t("Offline dictation models verified and ready. Switched recognition engine to SenseVoice WASM."),
         );
       } else if (status.ready) {
-        new Notice("Offline dictation models verified and ready.");
+        new Notice(t("Offline dictation models verified and ready."));
       }
       return status;
     } finally {
@@ -639,7 +640,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   ): Promise<DictationStackStatus> {
     const manager = this.ensureDesktopModelManager();
     if (!manager) {
-      throw new Error("Local offline WASM models are only available on desktop.");
+      throw new Error(t("Local offline WASM models are only available on desktop."));
     }
     if (this.downloadAbortController) {
       return manager.downloadVitsStack({
@@ -659,10 +660,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.settings.ttsEngine = "vits-wasm";
         await this.saveSettings();
         new Notice(
-          "Optional local VITS model verified and ready. Switched speech engine to VITS WASM.",
+          t("Optional local VITS model verified and ready. Switched speech engine to VITS WASM."),
         );
       } else if (status.vitsReady) {
-        new Notice("Optional local VITS model verified and ready.");
+        new Notice(t("Optional local VITS model verified and ready."));
       }
       return status;
     } finally {
@@ -712,7 +713,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       await this.bargeInWorkerClient.unload();
     }
     await manager.clearCachedModels();
-    new Notice("Cleared cached offline speech models outside the vault.");
+    new Notice(t("Cleared cached offline speech models outside the vault."));
   }
 
   async openModelCacheFolder(): Promise<void> {
@@ -930,7 +931,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
                   if (!this.daemonTtsFallbackNotified) {
                     this.daemonTtsFallbackNotified = true;
                     new Notice(
-                      "Local voice daemon is offline or unauthorized; falling back to VITS WASM.",
+                      t("Local voice daemon is offline or unauthorized; falling back to VITS WASM."),
                     );
                   }
                   return this.vitsTtsEngine.synthesize(text, options);
@@ -940,7 +941,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
                 if (!this.daemonTtsFallbackNotified) {
                   this.daemonTtsFallbackNotified = true;
                   new Notice(
-                    "Local voice daemon is offline or unauthorized; falling back to system speech synthesis.",
+                    t("Local voice daemon is offline or unauthorized; falling back to system speech synthesis."),
                   );
                 }
                 return {
@@ -1017,14 +1018,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           if (!this.isDictationBusy() && this.currentStatus !== "error") {
             this.setStatus("idle");
           }
-          new Notice("Read-aloud interrupted by voice.");
+          new Notice(t("Read-aloud interrupted by voice."));
         },
         onDowngrade: (decision) => {
           this.lastBargeInDecision = decision;
           if (decision.reason === "native-aec-inactive" && !this.aecDowngradeNotified) {
             this.aecDowngradeNotified = true;
             new Notice(
-              "Native echo cancellation is inactive on the current audio device; hands-free barge-in downgraded to manual stop.",
+              t("Native echo cancellation is inactive on the current audio device; hands-free barge-in downgraded to manual stop."),
             );
           }
         },
@@ -1039,8 +1040,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private handlePlaybackStateChange(state: PlaybackQueueState): void {
     if (state === "playing") {
       this.setStatus("speaking");
-      if (this.subtitleRoleEl?.getText() === "Read-aloud paused") {
-        this.subtitleRoleEl.setText("Reading aloud");
+      if (this.subtitleRoleEl?.getText() === t("Read-aloud paused")) {
+        this.subtitleRoleEl.setText(t("Reading aloud"));
       }
       this.updateSubtitlePlaybackControls(true, false);
       void this.syncBargeInForPlaybackState("playing");
@@ -1049,8 +1050,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     if (state === "paused") {
       void this.syncBargeInForPlaybackState("paused");
-      this.setStatus("speaking", "Read-aloud paused");
-      this.subtitleRoleEl?.setText("Read-aloud paused");
+      this.setStatus("speaking", t("Read-aloud paused"));
+      this.subtitleRoleEl?.setText(t("Read-aloud paused"));
       this.updateSubtitlePlaybackControls(true, true);
       return;
     }
@@ -1153,8 +1154,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         onSpeechActivity: (isSpeech) => {
           if (this.offlineSession?.state === "listening") {
             this.showSubtitleOverlay(
-              "Offline dictation",
-              isSpeech ? "Listening (speech detected)..." : "Listening...",
+              t("Offline dictation"),
+              isSpeech ? t("Listening (speech detected)...") : t("Listening..."),
             );
           }
         },
@@ -1170,13 +1171,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           this.hideSubtitleOverlay();
           if (isMicrophonePermissionError(err)) {
             new Notice(
-              "Microphone permission was denied. Grant microphone access to Obsidian in your OS privacy settings and try again.",
+              t("Microphone permission was denied. Grant microphone access to Obsidian in your OS privacy settings and try again."),
               7000,
             );
             return;
           }
           const message = redactSecrets(err.message || String(err));
-          new Notice(`Offline dictation error: ${message}`);
+          new Notice(t("Offline dictation error: {0}", message));
         },
       });
     }
@@ -1190,24 +1191,24 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     switch (state) {
       case "starting":
         this.listening = true;
-        this.setStatus("busy", "Loading model");
-        this.showSubtitleOverlay("Offline dictation", "Loading local SenseVoice model...");
+        this.setStatus("busy", t("Loading model"));
+        this.showSubtitleOverlay(t("Offline dictation"), t("Loading local SenseVoice model..."));
         break;
       case "listening":
         this.listening = true;
         this.setStatus("listening");
         this.showSubtitleOverlay(
-          "Offline dictation",
+          t("Offline dictation"),
           this.offlineSession?.mode === "push-to-talk"
-            ? "Push to talk active — speak now..."
-            : "Listening...",
+            ? t("Push to talk active — speak now...")
+            : t("Listening..."),
         );
         break;
       case "transcribing":
       case "stopping":
         this.listening = false;
-        this.setStatus("busy", "Transcribing");
-        this.showSubtitleOverlay("Offline dictation", "Transcribing offline...");
+        this.setStatus("busy", t("Transcribing"));
+        this.showSubtitleOverlay(t("Offline dictation"), t("Transcribing offline..."));
         break;
       case "idle":
         this.listening = false;
@@ -1277,8 +1278,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       onSpeechActivity: (isSpeech) => {
         if (getSession()?.state === "listening") {
           this.showSubtitleOverlay(
-            roleLabel,
-            isSpeech ? "Listening (speech detected)..." : "Listening...",
+            t(roleLabel),
+            isSpeech ? t("Listening (speech detected)...") : t("Listening..."),
           );
         }
       },
@@ -1294,13 +1295,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.hideSubtitleOverlay();
         if (isMicrophonePermissionError(err)) {
           new Notice(
-            "Microphone permission was denied. Grant microphone access to Obsidian in your OS privacy settings and try again.",
+            t("Microphone permission was denied. Grant microphone access to Obsidian in your OS privacy settings and try again."),
             7000,
           );
           return;
         }
         const message = redactSecrets(err.message || String(err));
-        new Notice(`${roleLabel} error: ${message}`);
+        new Notice(t("{0} error: {1}", t(roleLabel), message));
       },
     });
   }
@@ -1313,24 +1314,24 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     switch (state) {
       case "starting":
         this.listening = true;
-        this.setStatus("busy", "Starting mic");
-        this.showSubtitleOverlay(roleLabel, "Opening microphone...");
+        this.setStatus("busy", t("Starting mic"));
+        this.showSubtitleOverlay(t(roleLabel), t("Opening microphone..."));
         break;
       case "listening":
         this.listening = true;
         this.setStatus("listening");
         this.showSubtitleOverlay(
-          roleLabel,
+          t(roleLabel),
           getSession()?.mode === "push-to-talk"
-            ? "Push to talk active — speak now..."
-            : "Listening...",
+            ? t("Push to talk active — speak now...")
+            : t("Listening..."),
         );
         break;
       case "transcribing":
       case "stopping":
         this.listening = false;
-        this.setStatus("busy", "Transcribing");
-        this.showSubtitleOverlay(roleLabel, "Transcribing...");
+        this.setStatus("busy", t("Transcribing"));
+        this.showSubtitleOverlay(t(roleLabel), t("Transcribing..."));
         break;
       case "idle":
         this.listening = false;
@@ -1378,7 +1379,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
               if (!this.daemonAsrFallbackNotified) {
                 this.daemonAsrFallbackNotified = true;
                 new Notice(
-                  "Local voice daemon is offline or unauthorized; falling back to SenseVoice WASM offline dictation.",
+                  t("Local voice daemon is offline or unauthorized; falling back to SenseVoice WASM offline dictation."),
                 );
               }
               return { text: res.text.trim(), isFinal: true };
@@ -1391,13 +1392,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           if (!this.daemonAsrFallbackNotified) {
             this.daemonAsrFallbackNotified = true;
             new Notice(
-              "Local voice daemon is offline or unauthorized; falling back to OpenAI-compatible dictation.",
+              t("Local voice daemon is offline or unauthorized; falling back to OpenAI-compatible dictation."),
             );
           }
           return this.ensureCloudAsrTransport().transcribe(pcm16k, options);
         }
         throw new Error(
-          "Local voice daemon disconnected mid-session and no fallback ASR engine is configured.",
+          t("Local voice daemon disconnected mid-session and no fallback ASR engine is configured."),
         );
       },
       close: async () => {},
@@ -1486,7 +1487,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     badge.createSpan({ cls: "vm-status-dot" });
     this.statusLabelEl = badge.createSpan({
       cls: "vm-status-label",
-      text: STATUS_LABEL_MAP.idle,
+      text: t(STATUS_LABEL_MAP.idle),
     });
     this.statusBarEl = item;
 
@@ -1558,17 +1559,17 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     const controls = header.createDiv({ cls: "vm-subtitle-controls vm-subtitle-hidden" });
     const pauseBtn = controls.createEl("button", {
       cls: "vm-subtitle-btn",
-      text: "Pause",
+      text: t("Pause"),
     });
     pauseBtn.type = "button";
     const nextBtn = controls.createEl("button", {
       cls: "vm-subtitle-btn",
-      text: "Next",
+      text: t("Next"),
     });
     nextBtn.type = "button";
     const stopBtn = controls.createEl("button", {
       cls: "vm-subtitle-btn",
-      text: "Stop",
+      text: t("Stop"),
     });
     stopBtn.type = "button";
 
@@ -1616,7 +1617,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
     if (visible) {
       this.subtitleControlsEl.removeClass("vm-subtitle-hidden");
-      this.subtitlePauseBtnEl.setText(isPaused ? "Resume" : "Pause");
+      this.subtitlePauseBtnEl.setText(isPaused ? t("Resume") : t("Pause"));
     } else {
       this.subtitleControlsEl.addClass("vm-subtitle-hidden");
     }
@@ -1631,7 +1632,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.statusBarEl.removeClass(cls);
     }
     this.statusBarEl.addClass(STATUS_CLASS_MAP[next]);
-    this.statusLabelEl.setText(labelOverride ?? STATUS_LABEL_MAP[next]);
+    this.statusLabelEl.setText(labelOverride ?? t(STATUS_LABEL_MAP[next]));
   }
 
   private showSubtitleOverlay(
@@ -1702,10 +1703,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       }
       new Notice(
         wasDaemonStarting
-          ? "Daemon voice dictation stopped."
+          ? t("Daemon voice dictation stopped.")
           : wasCloudStarting
-            ? "Cloud voice dictation stopped."
-            : "Offline voice dictation stopped.",
+            ? t("Cloud voice dictation stopped.")
+            : t("Offline voice dictation stopped."),
       );
       return;
     }
@@ -1713,27 +1714,27 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     if (this.offlineSession && this.offlineSession.state !== "idle") {
       this.pointerHoldActive = false;
       await this.offlineSession.stop({ flush: true });
-      new Notice("Offline voice dictation stopped.");
+      new Notice(t("Offline voice dictation stopped."));
       return;
     }
 
     if (this.cloudSession && this.cloudSession.state !== "idle") {
       this.pointerHoldActive = false;
       await this.cloudSession.stop({ flush: true });
-      new Notice("Cloud voice dictation stopped.");
+      new Notice(t("Cloud voice dictation stopped."));
       return;
     }
 
     if (this.daemonSession && this.daemonSession.state !== "idle") {
       this.pointerHoldActive = false;
       await this.daemonSession.stop({ flush: true });
-      new Notice("Daemon voice dictation stopped.");
+      new Notice(t("Daemon voice dictation stopped."));
       return;
     }
 
     if (this.activeRecognition || this.listening) {
       this.stopBrowserRecognition();
-      new Notice("Voice dictation stopped.");
+      new Notice(t("Voice dictation stopped."));
       return;
     }
 
@@ -1746,7 +1747,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       effectiveAsr !== this.settings.asrEngine
     ) {
       new Notice(
-        "Cloud speech recognition is disabled on mobile by privacy settings; using system speech recognition.",
+        t("Cloud speech recognition is disabled on mobile by privacy settings; using system speech recognition."),
       );
     }
 
@@ -1770,7 +1771,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     if (effectiveAsr !== "system") {
       this.notifyDictationTargetSettled();
       new Notice(
-        `Speech recognition engine "${effectiveAsr}" is scheduled for a subsequent milestone. Choose SenseVoice WASM on desktop for offline dictation.`,
+        t(
+          "Speech recognition engine \"{0}\" is scheduled for a subsequent milestone. Choose SenseVoice WASM on desktop for offline dictation.",
+          effectiveAsr,
+        ),
       );
       return;
     }
@@ -1802,7 +1806,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.pointerHoldActive = false;
       this.notifyDictationTargetSettled();
       const msg = redactSecrets(err instanceof Error ? err.message : String(err));
-      new Notice(`Invalid local daemon URL: ${msg}`);
+      new Notice(t("Invalid local daemon URL: {0}", msg));
       return;
     }
 
@@ -1827,7 +1831,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         if (modelStatus?.ready) {
           this.startingDictation = false;
           new Notice(
-            "Local voice daemon is offline or unauthorized; falling back to SenseVoice WASM offline dictation.",
+            t("Local voice daemon is offline or unauthorized; falling back to SenseVoice WASM offline dictation."),
           );
           await this.startOfflineSenseVoiceDictation(mode, fromPointerHold);
           return;
@@ -1835,7 +1839,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         if (this.isOpenAiCompatAsrReady()) {
           this.startingDictation = false;
           new Notice(
-            "Local voice daemon is offline or unauthorized; falling back to OpenAI-compatible dictation.",
+            t("Local voice daemon is offline or unauthorized; falling back to OpenAI-compatible dictation."),
           );
           await this.startCloudOpenAiDictation(mode, fromPointerHold);
           return;
@@ -1843,7 +1847,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.pointerHoldActive = false;
         this.notifyDictationTargetSettled();
         new Notice(
-          "Local voice daemon is offline or unauthorized. Start voice-daemon, download SenseVoice WASM models, or configure an OpenAI-compatible transcription API key in settings.",
+          t("Local voice daemon is offline or unauthorized. Start voice-daemon, download SenseVoice WASM models, or configure an OpenAI-compatible transcription API key in settings."),
         );
         return;
       }
@@ -1875,10 +1879,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
       new Notice(
         mode === "single"
-          ? "Daemon dictation started (single utterance)."
+          ? t("Daemon dictation started (single utterance).")
           : mode === "push-to-talk"
-            ? "Push-to-talk started — invoke again or release to transcribe."
-            : "Daemon dictation started.",
+            ? t("Push-to-talk started — invoke again or release to transcribe.")
+            : t("Daemon dictation started."),
       );
     } finally {
       if (this.dictationStartEpoch === startEpoch) {
@@ -1898,7 +1902,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.pointerHoldActive = false;
       this.notifyDictationTargetSettled();
       const msg = redactSecrets(err instanceof Error ? err.message : String(err));
-      new Notice(`Invalid transcription endpoint URL: ${msg}`);
+      new Notice(t("Invalid transcription endpoint URL: {0}", msg));
       return;
     }
 
@@ -1909,7 +1913,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.pointerHoldActive = false;
         this.notifyDictationTargetSettled();
         new Notice(
-          "Configure a transcription API key in Voice Mode settings before starting BYOK dictation.",
+          t("Configure a transcription API key in Voice Mode settings before starting BYOK dictation."),
         );
         return;
       }
@@ -1951,10 +1955,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
       new Notice(
         mode === "single"
-          ? "Cloud dictation started (single utterance)."
+          ? t("Cloud dictation started (single utterance).")
           : mode === "push-to-talk"
-            ? "Push-to-talk started — invoke again or release to transcribe."
-            : "Cloud dictation started.",
+            ? t("Push-to-talk started — invoke again or release to transcribe.")
+            : t("Cloud dictation started."),
       );
     } finally {
       if (this.dictationStartEpoch === startEpoch) {
@@ -1970,7 +1974,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     const manager = this.ensureDesktopModelManager();
     if (!manager) {
       this.pointerHoldActive = false;
-      new Notice("Local offline WASM dictation is disabled on mobile devices.");
+      new Notice(t("Local offline WASM dictation is disabled on mobile devices."));
       return;
     }
 
@@ -1983,7 +1987,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         status = await manager.checkStatus();
       } catch (err) {
         const msg = redactSecrets(err instanceof Error ? err.message : String(err));
-        new Notice(`Could not verify external model cache: ${msg}`);
+        new Notice(t("Could not verify external model cache: {0}", msg));
         return;
       }
 
@@ -1994,7 +1998,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       if (!status.ready) {
         this.pointerHoldActive = false;
         new Notice(
-          "Offline dictation models are not installed yet. Open Voice Mode settings to download and verify them.",
+          t("Offline dictation models are not installed yet. Open Voice Mode settings to download and verify them."),
           7000,
         );
         return;
@@ -2035,10 +2039,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
       new Notice(
         mode === "single"
-          ? "Offline dictation started (single utterance)."
+          ? t("Offline dictation started (single utterance).")
           : mode === "push-to-talk"
-            ? "Push-to-talk started — invoke again or release to transcribe."
-            : "Offline dictation started (SenseVoice WASM).",
+            ? t("Push-to-talk started — invoke again or release to transcribe.")
+            : t("Offline dictation started (SenseVoice WASM)."),
       );
     } finally {
       if (this.dictationStartEpoch === startEpoch) {
@@ -2056,8 +2060,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.notifyDictationTargetSettled();
       new Notice(
         this.capabilities.isMobile
-          ? "System speech recognition is unavailable in this mobile runtime."
-          : "Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for offline dictation.",
+          ? t("System speech recognition is unavailable in this mobile runtime.")
+          : t("Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for offline dictation."),
       );
       return;
     }
@@ -2097,7 +2101,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         }
 
         if (interimText.trim()) {
-          this.showSubtitleOverlay("Dictating", interimText.trim());
+          this.showSubtitleOverlay(t("Dictating"), interimText.trim());
         }
 
         if (finalText.trim()) {
@@ -2116,12 +2120,12 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.hideSubtitleOverlay();
         if (!this.capabilities.isMobile && event.error === "network") {
           new Notice(
-            "Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for 100% offline dictation.",
+            t("Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for 100% offline dictation."),
             7000,
           );
           return;
         }
-        new Notice(`Voice dictation error: ${event.error}.`);
+        new Notice(t("Voice dictation error: {0}.", event.error));
       };
 
       recognition.onend = () => {
@@ -2143,9 +2147,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.listening = true;
         this.recognitionErrored = false;
         this.setStatus("listening");
-        this.showSubtitleOverlay("Dictating", "Listening...");
+        this.showSubtitleOverlay(t("Dictating"), t("Listening..."));
         recognition.start();
-        new Notice("Voice dictation started.");
+        new Notice(t("Voice dictation started."));
       } catch (err) {
         this.activeRecognition = null;
         this.listening = false;
@@ -2154,7 +2158,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.setStatus("error");
         this.hideSubtitleOverlay();
         const message = redactSecrets(err instanceof Error ? err.message : String(err));
-        new Notice(`Could not start voice dictation: ${message}`);
+        new Notice(t("Could not start voice dictation: {0}", message));
       }
     } finally {
       if (this.dictationStartEpoch === startEpoch) {
@@ -2203,8 +2207,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     if (this.settings.enableLlmPolish && !targetOverride) {
       const controller = new AbortController();
       this.polishAbortControllers.add(controller);
-      this.setStatus("busy", "Polishing");
-      this.showSubtitleOverlay("Polishing", "Polishing transcript...");
+      this.setStatus("busy", t("Polishing"));
+      this.showSubtitleOverlay(t("Polishing"), t("Polishing transcript..."));
 
       try {
         const result = await polishDictatedTranscript(replaced, {
@@ -2222,7 +2226,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         if (result.fallbackReason && !this.polishFallbackNotified) {
           this.polishFallbackNotified = true;
           new Notice(
-            `Transcript polish skipped (${result.fallbackReason}); inserted unpolished text.`,
+            t("Transcript polish skipped ({0}); inserted unpolished text.", result.fallbackReason),
           );
         }
       } finally {
@@ -2244,7 +2248,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     } else {
       this.commitDictatedText(finalText);
     }
-    this.showSubtitleOverlay("Inserted", finalText, 2400);
+    this.showSubtitleOverlay(t("Inserted"), finalText, 2400);
   }
 
   private resolveTargetMarkdownView(): MarkdownView | null {
@@ -2266,7 +2270,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   private openVoiceQaModal(): void {
     if (!this.settings.enableVoiceQa) {
-      new Notice("Enable optional BYOK voice assistant in Voice Mode settings first.");
+      new Notice(t("Enable optional BYOK voice assistant in Voice Mode settings first."));
       return;
     }
 
@@ -2402,14 +2406,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   commitDictatedText(text: string): void {
     if (!this.commitDictatedTextSilently(text)) {
-      new Notice("No active editor or text input found for dictated text.");
+      new Notice(t("No active editor or text input found for dictated text."));
     }
   }
 
   private async readSelectionOrNoteAloud(): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.editor) {
-      new Notice("Open a Markdown note to read aloud.");
+      new Notice(t("Open a Markdown note to read aloud."));
       return;
     }
 
@@ -2419,7 +2423,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     });
 
     if (sentences.length === 0) {
-      new Notice("No readable text found in the selection or note.");
+      new Notice(t("No readable text found in the selection or note."));
       return;
     }
 
@@ -2430,7 +2434,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       isCloudTtsEngine(this.settings.ttsEngine)
     ) {
       new Notice(
-        "Cloud speech synthesis is disabled on mobile by privacy settings; using system speech synthesis.",
+        t("Cloud speech synthesis is disabled on mobile by privacy settings; using system speech synthesis."),
       );
     }
     const effectiveTts = this.getEffectiveTtsEngine();
@@ -2438,7 +2442,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     if (effectiveTts === "vits-wasm") {
       const manager = this.ensureDesktopModelManager();
       if (!manager) {
-        new Notice("Local offline VITS speech synthesis is only available on desktop.");
+        new Notice(t("Local offline VITS speech synthesis is only available on desktop."));
         return;
       }
       let status: DictationStackStatus;
@@ -2446,7 +2450,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         status = await manager.checkStatus();
       } catch (err) {
         const msg = redactSecrets(err instanceof Error ? err.message : String(err));
-        new Notice(`Could not verify external model cache: ${msg}`);
+        new Notice(t("Could not verify external model cache: {0}", msg));
         return;
       }
       if (startEpoch !== this.readAloudStartEpoch) {
@@ -2454,7 +2458,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       }
       if (!status.vitsReady) {
         new Notice(
-          "Optional local VITS model is not installed yet. Download it in Voice Mode settings or switch speech engine to system.",
+          t("Optional local VITS model is not installed yet. Download it in Voice Mode settings or switch speech engine to system."),
         );
         return;
       }
@@ -2470,13 +2474,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.readingNotePath = view.file?.path ?? null;
     const queued = this.speechPlayer?.speakSentences(sentences) ?? 0;
     if (queued > 0) {
-      new Notice(`Reading ${queued} ${queued === 1 ? "sentence" : "sentences"} aloud.`);
+      new Notice(queued === 1 ? t("Reading 1 sentence aloud.") : t("Reading {0} sentences aloud.", queued));
     }
   }
 
   private togglePauseReadAloud(): void {
     if (!this.speechPlayer?.isActive) {
-      new Notice("Read-aloud is not currently active.");
+      new Notice(t("Read-aloud is not currently active."));
       return;
     }
     this.speechPlayer.togglePause();
@@ -2484,7 +2488,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   private skipReadAloudSentence(): void {
     if (!this.speechPlayer?.isActive) {
-      new Notice("Read-aloud is not currently active.");
+      new Notice(t("Read-aloud is not currently active."));
       return;
     }
     this.speechPlayer.skipCurrent();
@@ -2503,11 +2507,11 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   private stopReadAloud(): void {
     if (!this.speechPlayer?.isActive) {
-      new Notice("Read-aloud is not currently playing.");
+      new Notice(t("Read-aloud is not currently playing."));
       return;
     }
     this.stopReadAloudSilently();
-    new Notice("Read-aloud stopped.");
+    new Notice(t("Read-aloud stopped."));
   }
 
   private async showRuntimeStatusNotice(): Promise<void> {
@@ -2527,21 +2531,30 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         nativeAecActive: false,
       });
 
-    let wasmLabel = "disabled (mobile OOM safeguard)";
+    let wasmLabel = t("disabled (mobile OOM safeguard)");
     if (this.capabilities.allowLocalWasmModels) {
       const status = await this.getModelStatus().catch(() => null);
-      const vitsLabel = status?.vitsReady ? ", VITS ready" : "";
+      const vitsLabel = status?.vitsReady ? t(", VITS ready") : "";
       wasmLabel = status?.ready
-        ? `ready (SHA256 verified${vitsLabel}, budget ${this.capabilities.maxLocalModelMemoryMb} MB)`
-        : `not downloaded${vitsLabel} (budget ${this.capabilities.maxLocalModelMemoryMb} MB)`;
+        ? t("ready (SHA256 verified{0}, budget {1} MB)", vitsLabel, this.capabilities.maxLocalModelMemoryMb)
+        : t("not downloaded{0} (budget {1} MB)", vitsLabel, this.capabilities.maxLocalModelMemoryMb);
     }
 
     const secretLabel = this.secretStore.available
-      ? `ready (${this.secretStore.listSecrets().length} stored)`
-      : "unavailable (upgrade >= 1.11.4)";
+      ? t("ready ({0} stored)", this.secretStore.listSecrets().length)
+      : t("unavailable (upgrade >= 1.11.4)");
 
     new Notice(
-      `Host: ${this.capabilities.hostClass} | ASR: ${effectiveAsr} (${this.settings.dictationMode}) | TTS: ${effectiveTts} | Local WASM: ${wasmLabel} | Secret storage: ${secretLabel} | Barge-in: ${bargeIn.policy}`,
+      t(
+        "Host: {0} | ASR: {1} ({2}) | TTS: {3} | Local WASM: {4} | Secret storage: {5} | Barge-in: {6}",
+        t(this.capabilities.hostClass),
+        effectiveAsr,
+        t(this.settings.dictationMode),
+        effectiveTts,
+        wasmLabel,
+        secretLabel,
+        t(bargeIn.policy),
+      ),
       6500,
     );
   }

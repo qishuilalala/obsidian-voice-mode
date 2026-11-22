@@ -4,16 +4,20 @@ All notable changes to **Voice Mode** (`voice-mode`) will be documented in this 
 
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html). Git tags omit the leading `v` prefix (e.g. `0.1.0`) to comply with Obsidian Community Plugin Directory conventions.
 
-## [0.1.0] - 2026-11-22
+## [0.1.0] - 2026-11-22 (unreleased source build)
 
 ### Fixed
+
+- A fresh checkout can run `pnpm run build` or `pnpm run dev` immediately after installing dependencies. Shared packages resolve from source before their compiled files exist.
 
 - Read-aloud now starts promptly when a streamed reply begins with a Markdown horizontal rule. A later rule no longer causes intervening prose to disappear. Leading Obsidian properties are handled consistently for full notes, selections and streamed text.
 
 ### Added
 
+- Commands, settings and status messages follow the Obsidian interface language, with Simplified Chinese and English labels. The dictation language remains a separate setting. 简体中文界面跟随 Obsidian 的语言设置；「听写语言」只控制识别语种。
+
 - Browser hosts can use the shared Web Speech engine and HTML audio sink for playback, timed breaks and prosody.
-- Shared packages expose individual modules for bundlers. `pnpm run verify:matrix` rebuilds and compares the packaged bytes with the archives used by each available companion repository.
+- Shared packages expose individual modules for bundlers. `pnpm run verify:matrix` rebuilds and compares the packaged bytes with the archives used by each available companion repository. For a full comparison, run `pnpm run verify:matrix --require-all` with all three companion checkouts in place. The manual GitHub Actions check compares the five archives at pinned companion commits.
 - The mobile CDP probe can discover local debugging targets and reconnect to the selected vault after a desktop mobile-emulation reload. Run `node scripts/mobile-cdp-probe.mjs --selftest` for its offline checks.
 
 - **Desktop 100% offline WASM dictation (`SenseVoice WASM`)**:

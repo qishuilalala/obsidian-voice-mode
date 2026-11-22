@@ -1,3 +1,4 @@
+import { isSimplifiedChinese, presetLabel, t, type UiMessage } from "./i18n.ts";
 import {
   ALLOWED_MODEL_HOSTNAMES,
   ALLOWED_WASM_HOSTNAMES,
@@ -45,7 +46,7 @@ import {
   type Plugin,
   type SettingDefinitionItem,
 } from "obsidian";
-import { resolveExternalModelCacheDir } from "./desktop-fs.ts";
+import { VAULT_ISOLATION_ERROR_MESSAGE, resolveExternalModelCacheDir } from "./desktop-fs.ts";
 import type { DictationStackStatus, ModelDownloadProgress } from "./model-manager.ts";
 import {
   DEFAULT_LOCAL_DAEMON_URL,
@@ -86,7 +87,7 @@ export interface VoiceModePluginHost {
   getBargeInDecision?(): BargeInPolicyDecision | null;
 }
 
-const ASR_ENGINE_LABELS: Readonly<Record<ObsidianAsrEngine, string>> = {
+const ASR_ENGINE_LABELS: Readonly<Record<ObsidianAsrEngine, UiMessage>> = {
   system: "System speech recognition",
   "sensevoice-wasm": "SenseVoice WASM (desktop offline)",
   "zipformer-wasm": "Zipformer WASM (desktop local)",
@@ -94,13 +95,13 @@ const ASR_ENGINE_LABELS: Readonly<Record<ObsidianAsrEngine, string>> = {
   daemon: "Local voice daemon (desktop)",
 };
 
-const DICTATION_MODE_LABELS: Readonly<Record<DictationMode, string>> = {
+const DICTATION_MODE_LABELS: Readonly<Record<DictationMode, UiMessage>> = {
   toggle: "Toggle start and stop",
   single: "Single utterance",
   "push-to-talk": "Push to talk",
 };
 
-const TTS_ENGINE_LABELS: Readonly<Record<TtsEngineKind, string>> = {
+const TTS_ENGINE_LABELS: Readonly<Record<TtsEngineKind, UiMessage>> = {
   system: "System speech synthesis",
   "vits-wasm": "VITS WASM (desktop local)",
   "kokoro-daemon": "Kokoro daemon (desktop local)",
@@ -108,19 +109,19 @@ const TTS_ENGINE_LABELS: Readonly<Record<TtsEngineKind, string>> = {
   mimo: "MiMo cloud TTS (BYOK)",
 };
 
-const SUBTITLE_FONT_SIZE_LABELS: Readonly<Record<SubtitleFontSize, string>> = {
+const SUBTITLE_FONT_SIZE_LABELS: Readonly<Record<SubtitleFontSize, UiMessage>> = {
   small: "Small",
   medium: "Medium",
   large: "Large",
 };
 
-const SUBTITLE_WIDTH_LABELS: Readonly<Record<SubtitleWidth, string>> = {
+const SUBTITLE_WIDTH_LABELS: Readonly<Record<SubtitleWidth, UiMessage>> = {
   narrow: "Narrow (420 px)",
   medium: "Medium (640 px)",
   wide: "Wide (860 px)",
 };
 
-const BARGE_IN_MODE_LABELS: Readonly<Record<BargeInMode, string>> = {
+const BARGE_IN_MODE_LABELS: Readonly<Record<BargeInMode, UiMessage>> = {
   detect: "Detect native AEC automatically",
   auto: "Force hands-free barge-in (desktop non-system TTS)",
   manual: "Manual stop only",
@@ -141,11 +142,11 @@ export function detectDesktopOsHint(): DesktopOsHint {
 
 function buildOptionsMap<K extends string>(
   keys: readonly K[],
-  labels: Readonly<Record<K, string>>,
+  labels: Readonly<Record<K, UiMessage>>,
 ): Record<string, string> {
   const options: Record<string, string> = {};
   for (const key of keys) {
-    options[key] = labels[key];
+    options[key] = t(labels[key]);
   }
   return options;
 }
@@ -153,18 +154,18 @@ function buildOptionsMap<K extends string>(
 function buildTtsPresetOptions(): Record<string, string> {
   const options: Record<string, string> = {};
   for (const [presetId, preset] of Object.entries(TTS_OPENAI_PRESETS)) {
-    options[presetId] = preset.label;
+    options[presetId] = presetLabel(preset.label);
   }
-  options.custom = "Custom OpenAI-compatible endpoint";
+  options.custom = t("Custom OpenAI-compatible endpoint");
   return options;
 }
 
 function buildVitsSpeakerOptions(): Record<string, string> {
   const options: Record<string, string> = {
-    "": "Default (suyingxue — 0)",
+    "": t("Default (suyingxue — 0)"),
   };
   for (const speaker of VITS_SPEAKERS) {
-    options[speaker.name] = `${speaker.en} (${speaker.name} — ${speaker.sid})`;
+    options[speaker.name] = `${isSimplifiedChinese() ? speaker.zh : speaker.en} (${speaker.name} — ${speaker.sid})`;
   }
   return options;
 }
@@ -208,13 +209,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
   ): { desc: string; placeholder: string } {
     if (engine === "vits-wasm") {
       return {
-        desc: `Optional speaker name or numeric ID (${VITS_SPEAKERS.map((s) => `${s.name}/${s.sid}`).join(", ")}).`,
+        desc: t("Optional speaker name or numeric ID ({0}).", VITS_SPEAKERS.map((s) => `${s.name}/${s.sid}`).join(", ")),
         placeholder: "suyingxue",
       };
     }
     if (engine === "kokoro-daemon") {
       return {
-        desc: "Optional Kokoro speaker ID or numeric index (for example: zf_001, zf_xiaobei, zm_010, af_maple, or 0..102).",
+        desc: t("Optional Kokoro speaker ID or numeric index (for example: zf_001, zf_xiaobei, zm_010, af_maple, or 0..102)."),
         placeholder: "zf_001",
       };
     }
@@ -222,20 +223,20 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       const preset = resolveTtsOpenAiPreset(presetId);
       return {
         desc: preset
-          ? `Optional voice override for ${preset.label} (default: ${preset.voice}).`
-          : "Optional voice identifier required by your endpoint.",
+          ? t("Optional voice override for {0} (default: {1}).", presetLabel(preset.label), preset.voice)
+          : t("Optional voice identifier required by your endpoint."),
         placeholder: preset?.voice || "alloy",
       };
     }
     if (engine === "mimo") {
       return {
-        desc: `Optional MiMo voice identifier (available: ${MIMO_VOICES.join(", ")}).`,
+        desc: t("Optional MiMo voice identifier (available: {0}).", MIMO_VOICES.join(", ")),
         placeholder: MIMO_DEFAULT_VOICE,
       };
     }
     return {
-      desc: "Optional voice name or provider speaker ID. Leave empty to use the system default.",
-      placeholder: "Default system voice",
+      desc: t("Optional voice name or provider speaker ID. Leave empty to use the system default."),
+      placeholder: t("Default system voice"),
     };
   }
 
@@ -243,17 +244,29 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     if (engine === "openai-compat") {
       const preset = resolveTtsOpenAiPreset(presetId);
       const suggested = preset ? toSecretId("tts", preset.id) : toSecretId("tts", "custom");
-      const label = preset ? preset.label : "Custom OpenAI-compatible endpoint";
+      const label = preset ? presetLabel(preset.label) : t("Custom OpenAI-compatible endpoint");
       const loopbackHint =
         preset && !ttsPresetRequiresKey(preset.id)
-          ? " Optional for local loopback servers without authentication."
+          ? t(" Optional for local loopback servers without authentication.")
           : "";
-      return `Select a secret from Obsidian secret storage for ${label} (suggested ID: ${suggested}).${loopbackHint}`;
+      return t(
+        "Select a secret from Obsidian secret storage for {0} (suggested ID: {1}).{2}",
+        label,
+        suggested,
+        loopbackHint,
+      );
     }
     if (engine === "mimo") {
-      return `Select a secret from Obsidian secret storage for MiMo cloud TTS (suggested ID: ${toSecretId("tts", "mimo")}).`;
+      return t(
+        "Select a secret from Obsidian secret storage for MiMo cloud TTS (suggested ID: {0}).",
+        toSecretId("tts", "mimo"),
+      );
     }
-    return `Select a secret from Obsidian secret storage for ${TTS_ENGINE_LABELS[engine]} (suggested ID: ${toSecretId("tts", engine)}).`;
+    return t(
+      "Select a secret from Obsidian secret storage for {0} (suggested ID: {1}).",
+      t(TTS_ENGINE_LABELS[engine]),
+      toSecretId("tts", engine),
+    );
   }
 
   /**
@@ -288,18 +301,18 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     const presetOptions: Record<string, string> = {};
     for (const presetId of LLM_PRESET_IDS) {
-      presetOptions[presetId] = LLM_PRESETS[presetId].label;
+      presetOptions[presetId] = presetLabel(LLM_PRESETS[presetId].label);
     }
     const activePreset = LLM_PRESETS[settings.llmPresetId];
 
     return [
       {
         type: "group",
-        heading: "Voice input",
+        heading: t("Voice input"),
         items: [
           {
-            name: "Recognition engine",
-            desc: "Choose how dictation is transcribed. Mobile devices disable local WASM models to stay within memory limits.",
+            name: t("Recognition engine"),
+            desc: t("Choose how dictation is transcribed. Mobile devices disable local WASM models to stay within memory limits."),
             control: {
               type: "dropdown",
               key: "asrEngine",
@@ -307,8 +320,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Dictation trigger mode",
-            desc: "Choose continuous toggle, single-utterance auto-stop, or push-to-talk.",
+            name: t("Dictation trigger mode"),
+            desc: t("Choose continuous toggle, single-utterance auto-stop, or push-to-talk."),
             control: {
               type: "dropdown",
               key: "dictationMode",
@@ -316,8 +329,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Dictation language",
-            desc: "Locale code used for dictation and transcription requests (use zh-CN or auto for mixed Chinese and English).",
+            name: t("Dictation language"),
+            desc: t("Locale code used for dictation and transcription requests (use zh-CN or auto for mixed Chinese and English)."),
             control: {
               type: "text",
               key: "dictationLanguage",
@@ -325,8 +338,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Silence endpoint duration",
-            desc: "Trailing silence in milliseconds before an utterance is finalized (400 to 5000 ms).",
+            name: t("Silence endpoint duration"),
+            desc: t("Trailing silence in milliseconds before an utterance is finalized (400 to 5000 ms)."),
             control: {
               type: "slider",
               key: "endpointSilenceMs",
@@ -336,16 +349,16 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Show live subtitle overlay",
-            desc: "Display a compact transcript card at the bottom of the workspace during voice activity.",
+            name: t("Show live subtitle overlay"),
+            desc: t("Display a compact transcript card at the bottom of the workspace during voice activity."),
             control: {
               type: "toggle",
               key: "enableSubtitleOverlay",
             },
           },
           {
-            name: "Personal vocabulary replacements",
-            desc: "Map spoken aliases or homophones to exact domain terms or wikilinks during dictation.",
+            name: t("Personal vocabulary replacements"),
+            desc: t("Map spoken aliases or homophones to exact domain terms or wikilinks during dictation."),
             render: (setting) => {
               setting.settingEl.empty();
               setting.settingEl.addClass("vm-setting-block");
@@ -353,8 +366,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Transcription API key",
-            desc: `Select a secret stored in Obsidian secret storage (suggested ID: ${toSecretId("asr", "openai-compat")}).`,
+            name: t("Transcription API key"),
+            desc: t("Select a secret stored in Obsidian secret storage (suggested ID: {0}).", toSecretId("asr", "openai-compat")),
             render: (setting) => {
               const liveSettings = this.host.settings;
               this.attachSecretControl(setting, liveSettings.asrApiKeySecretId, async (candidate) => {
@@ -364,8 +377,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Transcription endpoint URL",
-            desc: "Optional HTTPS or loopback HTTP endpoint for OpenAI-compatible speech recognition.",
+            name: t("Transcription endpoint URL"),
+            desc: t("Optional HTTPS or loopback HTTP endpoint for OpenAI-compatible speech recognition."),
             control: {
               type: "text",
               key: "asrEndpointUrl",
@@ -374,8 +387,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Transcription model override",
-            desc: "Leave empty to use the default transcription model for your OpenAI-compatible endpoint.",
+            name: t("Transcription model override"),
+            desc: t("Leave empty to use the default transcription model for your OpenAI-compatible endpoint."),
             visible: () => this.resolveEffectiveAsr() === "openai-compat",
             control: {
               type: "text",
@@ -387,11 +400,11 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       },
       {
         type: "group",
-        heading: "Read aloud",
+        heading: t("Read aloud"),
         items: [
           {
-            name: "Speech engine",
-            desc: "System speech works immediately with zero downloads. Optional local or cloud engines can be mounted.",
+            name: t("Speech engine"),
+            desc: t("System speech works immediately with zero downloads. Optional local or cloud engines can be mounted."),
             control: {
               type: "dropdown",
               key: "ttsEngine",
@@ -399,8 +412,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "TTS preset",
-            desc: "Choose a cloud or local loopback OpenAI-compatible speech preset, or select custom endpoint.",
+            name: t("TTS preset"),
+            desc: t("Choose a cloud or local loopback OpenAI-compatible speech preset, or select custom endpoint."),
             visible: () => this.resolveEffectiveTts() === "openai-compat",
             control: {
               type: "dropdown",
@@ -409,8 +422,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "VITS speaker",
-            desc: "Select one of the built-in VITS speakers or leave on default.",
+            name: t("VITS speaker"),
+            desc: t("Select one of the built-in VITS speakers or leave on default."),
             visible: () => this.resolveEffectiveTts() === "vits-wasm",
             control: {
               type: "dropdown",
@@ -419,7 +432,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Preferred voice name",
+            name: t("Preferred voice name"),
             desc: voiceMeta.desc,
             control: {
               type: "text",
@@ -428,8 +441,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "TTS model override",
-            desc: "Leave empty to use the default speech model for the active provider or preset.",
+            name: t("TTS model override"),
+            desc: t("Leave empty to use the default speech model for the active provider or preset."),
             visible: () => {
               const e = this.resolveEffectiveTts();
               return e === "openai-compat" || e === "mimo";
@@ -444,8 +457,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "TTS endpoint URL",
-            desc: "Optional HTTPS or loopback HTTP speech endpoint URL. Plaintext HTTP is blocked for remote hosts.",
+            name: t("TTS endpoint URL"),
+            desc: t("Optional HTTPS or loopback HTTP speech endpoint URL. Plaintext HTTP is blocked for remote hosts."),
             visible: () => {
               const e = this.resolveEffectiveTts();
               return e === "openai-compat" || e === "mimo";
@@ -461,7 +474,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Speech API key",
+            name: t("Speech API key"),
             desc: this.describeTtsSecretDesc(effectiveTts, settings.ttsPresetId),
             visible: () => {
               const e = this.resolveEffectiveTts();
@@ -483,8 +496,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Speech rate",
-            desc: "Adjust read-aloud playback speed between 0.5x and 2.0x.",
+            name: t("Speech rate"),
+            desc: t("Adjust read-aloud playback speed between 0.5x and 2.0x."),
             control: {
               type: "slider",
               key: "speechRate",
@@ -494,20 +507,20 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Markdown table handling",
-            desc: "Choose whether Markdown pipe tables are skipped or replaced with a short spoken hint.",
+            name: t("Markdown table handling"),
+            desc: t("Choose whether Markdown pipe tables are skipped or replaced with a short spoken hint."),
             control: {
               type: "dropdown",
               key: "markdownTablePolicy",
               options: {
-                skip: "Skip tables",
-                placeholder: "Speak brief placeholder",
+                skip: t("Skip tables"),
+                placeholder: t("Speak brief placeholder"),
               },
             },
           },
           {
-            name: "Subtitle text size",
-            desc: "Choose the font size for the live transcript and read-aloud subtitle card.",
+            name: t("Subtitle text size"),
+            desc: t("Choose the font size for the live transcript and read-aloud subtitle card."),
             control: {
               type: "dropdown",
               key: "subtitleFontSize",
@@ -515,8 +528,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Subtitle card width",
-            desc: "Choose the maximum width of the floating subtitle card.",
+            name: t("Subtitle card width"),
+            desc: t("Choose the maximum width of the floating subtitle card."),
             control: {
               type: "dropdown",
               key: "subtitleWidth",
@@ -524,16 +537,16 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Stop read-aloud when switching notes",
-            desc: "Immediately cancel active read-aloud when opening or switching to another note.",
+            name: t("Stop read-aloud when switching notes"),
+            desc: t("Immediately cancel active read-aloud when opening or switching to another note."),
             control: {
               type: "toggle",
               key: "stopReadAloudOnNoteSwitch",
             },
           },
           {
-            name: "Barge-in mode",
-            desc: "Control hands-free voice interruption during non-system read-aloud. System speech always uses manual stop to avoid speaker echo loops.",
+            name: t("Barge-in mode"),
+            desc: t("Control hands-free voice interruption during non-system read-aloud. System speech always uses manual stop to avoid speaker echo loops."),
             control: {
               type: "dropdown",
               key: "bargeInMode",
@@ -544,27 +557,27 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       },
       {
         type: "group",
-        heading: "AI model",
+        heading: t("AI model"),
         items: [
           {
-            name: "Enable optional BYOK voice assistant",
-            desc: "Leave disabled for strictly offline dictation and read-aloud. Ask AI about selection or note uses your own model provider with automatic CORS fallback. Volcengine endpoints accept model names or an ep-xxx endpoint ID.",
+            name: t("Enable optional BYOK voice assistant"),
+            desc: t("Leave disabled for strictly offline dictation and read-aloud. Ask AI about selection or note uses your own model provider with automatic CORS fallback. Volcengine endpoints accept model names or an ep-xxx endpoint ID."),
             control: {
               type: "toggle",
               key: "enableVoiceQa",
             },
           },
           {
-            name: "Post-dictation LLM polish",
-            desc: "Apply minimal typo, homophone, and punctuation cleanup after dictation with 4-layer anti-hallucination guards. Falls back to original text on any error.",
+            name: t("Post-dictation LLM polish"),
+            desc: t("Apply minimal typo, homophone, and punctuation cleanup after dictation with 4-layer anti-hallucination guards. Falls back to original text on any error."),
             control: {
               type: "toggle",
               key: "enableLlmPolish",
             },
           },
           {
-            name: "Provider preset",
-            desc: "Choose a BYOK cloud provider or local loopback server. Direct CORS works with DeepSeek, Qwen, Kimi, SiliconFlow, OpenRouter, and Anthropic; automatic CORS fallback handles Volcengine, OpenAI, and Ollama loopback.",
+            name: t("Provider preset"),
+            desc: t("Choose a BYOK cloud provider or local loopback server. Direct CORS works with DeepSeek, Qwen, Kimi, SiliconFlow, OpenRouter, and Anthropic; automatic CORS fallback handles Volcengine, OpenAI, and Ollama loopback."),
             control: {
               type: "dropdown",
               key: "llmPresetId",
@@ -572,8 +585,12 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Provider API key",
-            desc: `Select a secret stored in Obsidian secret storage for ${activePreset.label} (suggested ID: ${toSecretId("llm", settings.llmPresetId)}).`,
+            name: t("Provider API key"),
+            desc: t(
+              "Select a secret stored in Obsidian secret storage for {0} (suggested ID: {1}).",
+              presetLabel(activePreset.label),
+              toSecretId("llm", settings.llmPresetId),
+            ),
             render: (setting) => {
               const liveSettings = this.host.settings;
               const currentPreset = liveSettings.llmPresetId;
@@ -588,8 +605,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Model identifier override",
-            desc: "Leave empty to use the default model defined by the selected preset.",
+            name: t("Model identifier override"),
+            desc: t("Leave empty to use the default model defined by the selected preset."),
             control: {
               type: "text",
               key: "llmModel",
@@ -597,8 +614,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Endpoint URL override",
-            desc: "Optional HTTPS or loopback HTTP base URL. Plaintext HTTP is blocked for remote hosts.",
+            name: t("Endpoint URL override"),
+            desc: t("Optional HTTPS or loopback HTTP base URL. Plaintext HTTP is blocked for remote hosts."),
             control: {
               type: "text",
               key: "llmBaseUrl",
@@ -610,10 +627,10 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       },
       {
         type: "group",
-        heading: "Models and privacy",
+        heading: t("Models and privacy"),
         items: [
           {
-            name: "Runtime summary",
+            name: t("Runtime summary"),
             searchable: false,
             render: (setting) => {
               setting.settingEl.empty();
@@ -622,8 +639,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Offline speech models",
-            desc: "Download or verify SHA256-pinned offline dictation models stored outside the vault.",
+            name: t("Offline speech models"),
+            desc: t("Download or verify SHA256-pinned offline dictation models stored outside the vault."),
             render: (setting) => {
               setting.settingEl.empty();
               setting.settingEl.addClass("vm-setting-block");
@@ -631,21 +648,24 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Model download host",
-            desc: `Allowlisted HTTPS host (${ALLOWED_MODEL_HOSTNAMES.join(", ")}) for optional desktop model downloads stored outside the vault.`,
+            name: t("Model download host"),
+            desc: t(
+              "Allowlisted HTTPS host ({0}) for optional desktop model downloads stored outside the vault.",
+              ALLOWED_MODEL_HOSTNAMES.join(", "),
+            ),
             visible: () => capabilities.allowLocalWasmModels,
             control: {
               type: "dropdown",
               key: "modelMirrorHost",
               options: {
-                [MODEL_HOST_PRIMARY]: "Primary host (huggingface.co)",
-                [MODEL_HOST_FALLBACK]: "Fallback mirror (hf-mirror.com)",
+                [MODEL_HOST_PRIMARY]: t("Primary host (huggingface.co)"),
+                [MODEL_HOST_FALLBACK]: t("Fallback mirror (hf-mirror.com)"),
               },
             },
           },
           {
-            name: "Custom external model cache path",
-            desc: "Optional absolute path outside the vault for desktop offline models (useful for sandboxed Linux packages).",
+            name: t("Custom external model cache path"),
+            desc: t("Optional absolute path outside the vault for desktop offline models (useful for sandboxed Linux packages)."),
             visible: () => capabilities.allowLocalWasmModels,
             control: {
               type: "text",
@@ -655,8 +675,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Idle model unload timeout",
-            desc: "Minutes of inactivity before unloading the local WASM worker to free memory (0 keeps it loaded).",
+            name: t("Idle model unload timeout"),
+            desc: t("Minutes of inactivity before unloading the local WASM worker to free memory (0 keeps it loaded)."),
             visible: () => capabilities.allowLocalWasmModels,
             control: {
               type: "slider",
@@ -667,8 +687,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Local daemon URL",
-            desc: "Loopback address for an optional local voice daemon on desktop.",
+            name: t("Local daemon URL"),
+            desc: t("Loopback address for an optional local voice daemon on desktop."),
             visible: () => capabilities.allowLocalDaemon,
             control: {
               type: "text",
@@ -678,8 +698,11 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Daemon auth token",
-            desc: `Select an optional bearer token stored in Obsidian secret storage for the local voice daemon (suggested ID: ${toSecretId("daemon", "local")}).`,
+            name: t("Daemon auth token"),
+            desc: t(
+              "Select an optional bearer token stored in Obsidian secret storage for the local voice daemon (suggested ID: {0}).",
+              toSecretId("daemon", "local"),
+            ),
             visible: () =>
               capabilities.allowLocalDaemon &&
               (this.resolveEffectiveAsr() === "daemon" ||
@@ -693,8 +716,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
-            name: "Allow cloud fallback on mobile",
-            desc: "Allow optional BYOK cloud speech endpoints when running on iOS or Android.",
+            name: t("Allow cloud fallback on mobile"),
+            desc: t("Allow optional BYOK cloud speech endpoints when running on iOS or Android."),
             control: {
               type: "toggle",
               key: "allowCloudFallbackOnMobile",
@@ -996,7 +1019,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       validateEndpointUrl(trimmed);
       return undefined;
     } catch {
-      return "Use an HTTPS URL or a loopback HTTP address.";
+      return t("Use an HTTPS URL or a loopback HTTP address.");
     }
   }
 
@@ -1009,7 +1032,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       validateLoopbackUrl(trimmed);
       return undefined;
     } catch {
-      return "Daemon URL must point to a local loopback host (127.0.0.1, localhost, or ::1).";
+      return t("Daemon URL must point to a local loopback host (127.0.0.1, localhost, or ::1).");
     }
   }
 
@@ -1025,9 +1048,16 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
       return undefined;
     } catch (err) {
-      return err instanceof Error
-        ? err.message
-        : "Custom model cache directory must be an absolute path outside the vault.";
+      if (err instanceof Error) {
+        if (
+          err.message === VAULT_ISOLATION_ERROR_MESSAGE ||
+          err.message === "Custom model cache directory must be an absolute path or start with ~/."
+        ) {
+          return t(err.message);
+        }
+        return redactSecrets(err.message);
+      }
+      return t("Custom model cache directory must be an absolute path outside the vault.");
     }
   }
 
@@ -1037,7 +1067,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     onUpdate: (secretId: string) => Promise<void>,
   ): void {
     if (!hasSecretStorage(this.app) || typeof SecretComponent !== "function") {
-      setting.setDesc(SECRET_STORAGE_UPGRADE_NOTICE);
+      setting.setDesc(t(SECRET_STORAGE_UPGRADE_NOTICE));
       setting.setDisabled(true);
       return;
     }
@@ -1056,16 +1086,16 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const { capabilities } = this.host;
     const currentAsrEngine = this.resolveEffectiveAsr();
 
-    new Setting(containerEl).setName("Voice input").setHeading();
+    new Setting(containerEl).setName(t("Voice input")).setHeading();
 
     new Setting(containerEl)
-      .setName("Recognition engine")
+      .setName(t("Recognition engine"))
       .setDesc(
-        "Choose how dictation is transcribed. Mobile devices disable local WASM models to stay within memory limits.",
+        t("Choose how dictation is transcribed. Mobile devices disable local WASM models to stay within memory limits."),
       )
       .addDropdown((dropdown) => {
         for (const engine of capabilities.allowedAsrEngines) {
-          dropdown.addOption(engine, ASR_ENGINE_LABELS[engine]);
+          dropdown.addOption(engine, t(ASR_ENGINE_LABELS[engine]));
         }
         dropdown.setValue(currentAsrEngine).onChange(async (value) => {
           this.host.settings.asrEngine = value as ObsidianAsrEngine;
@@ -1075,13 +1105,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Dictation trigger mode")
-      .setDesc("Choose continuous toggle, single-utterance auto-stop, or push-to-talk.")
+      .setName(t("Dictation trigger mode"))
+      .setDesc(t("Choose continuous toggle, single-utterance auto-stop, or push-to-talk."))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("toggle", DICTATION_MODE_LABELS.toggle)
-          .addOption("single", DICTATION_MODE_LABELS.single)
-          .addOption("push-to-talk", DICTATION_MODE_LABELS["push-to-talk"])
+          .addOption("toggle", t(DICTATION_MODE_LABELS.toggle))
+          .addOption("single", t(DICTATION_MODE_LABELS.single))
+          .addOption("push-to-talk", t(DICTATION_MODE_LABELS["push-to-talk"]))
           .setValue(this.host.settings.dictationMode)
           .onChange(async (value) => {
             if (value === "toggle" || value === "single" || value === "push-to-talk") {
@@ -1092,9 +1122,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Dictation language")
+      .setName(t("Dictation language"))
       .setDesc(
-        "Locale code used for dictation and transcription requests (use zh-CN or auto for mixed Chinese and English).",
+        t("Locale code used for dictation and transcription requests (use zh-CN or auto for mixed Chinese and English)."),
       )
       .addText((text) => {
         text
@@ -1107,8 +1137,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Silence endpoint duration")
-      .setDesc("Trailing silence in milliseconds before an utterance is finalized (400 to 5000 ms).")
+      .setName(t("Silence endpoint duration"))
+      .setDesc(t("Trailing silence in milliseconds before an utterance is finalized (400 to 5000 ms)."))
       .addSlider((slider) => {
         slider
           .setLimits(400, 5000, 100)
@@ -1120,8 +1150,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Show live subtitle overlay")
-      .setDesc("Display a compact transcript card at the bottom of the workspace during voice activity.")
+      .setName(t("Show live subtitle overlay"))
+      .setDesc(t("Display a compact transcript card at the bottom of the workspace during voice activity."))
       .addToggle((toggle) => {
         toggle.setValue(this.host.settings.enableSubtitleOverlay).onChange(async (value) => {
           this.host.settings.enableSubtitleOverlay = value;
@@ -1132,9 +1162,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     this.renderReplacementsEditor(containerEl);
 
     const asrSecretSetting = new Setting(containerEl)
-      .setName("Transcription API key")
+      .setName(t("Transcription API key"))
       .setDesc(
-        `Select a secret stored in Obsidian secret storage (suggested ID: ${toSecretId("asr", "openai-compat")}).`,
+        t("Select a secret stored in Obsidian secret storage (suggested ID: {0}).", toSecretId("asr", "openai-compat")),
       );
     this.attachSecretControl(asrSecretSetting, this.host.settings.asrApiKeySecretId, async (candidate) => {
       this.host.settings.asrApiKeySecretId = candidate;
@@ -1142,8 +1172,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     });
 
     new Setting(containerEl)
-      .setName("Transcription endpoint URL")
-      .setDesc("Optional HTTPS or loopback HTTP endpoint for OpenAI-compatible speech recognition.")
+      .setName(t("Transcription endpoint URL"))
+      .setDesc(t("Optional HTTPS or loopback HTTP endpoint for OpenAI-compatible speech recognition."))
       .addText((text) => {
         text
           .setPlaceholder("https://api.openai.com/v1")
@@ -1162,9 +1192,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     if (currentAsrEngine === "openai-compat") {
       new Setting(containerEl)
-        .setName("Transcription model override")
+        .setName(t("Transcription model override"))
         .setDesc(
-          "Leave empty to use the default transcription model for your OpenAI-compatible endpoint.",
+          t("Leave empty to use the default transcription model for your OpenAI-compatible endpoint."),
         )
         .addText((text) => {
           text
@@ -1184,7 +1214,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const header = panel.createDiv({ cls: "vm-replacements-header" });
     header.createSpan({
       cls: "vm-replacements-title",
-      text: "Personal vocabulary replacements",
+      text: t("Personal vocabulary replacements"),
     });
     const budgetSpan = header.createSpan({ cls: "vm-replacements-budget" });
 
@@ -1194,14 +1224,14 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       const rules = currentRules();
       const used = replacementsPayloadBytes(rules);
       budgetSpan.setText(
-        `${rules.length} rules (${used} / ${REPLACEMENTS_MAX_PAYLOAD_BYTES} UTF-8 bytes)`,
+        t("{0} rules ({1} / {2} UTF-8 bytes)", rules.length, used, REPLACEMENTS_MAX_PAYLOAD_BYTES),
       );
     };
     updateBudgetLabel();
 
     panel.createDiv({
       cls: "vm-model-meta",
-      text: "Map spoken aliases or homophones to domain terms, proper nouns, or [[wikilinks]] in a single pass.",
+      text: t("Map spoken aliases or homophones to domain terms, proper nouns, or [[wikilinks]] in a single pass."),
     });
 
     const listEl = panel.createDiv({ cls: "vm-replacements-list" });
@@ -1212,7 +1242,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     ): Promise<boolean> => {
       const check = validateReplacements(candidate);
       if (!check.ok) {
-        new Notice(`Invalid replacement dictionary: ${check.error}.`);
+        new Notice(t("Invalid replacement dictionary: {0}.", check.error));
         return false;
       }
       this.host.settings.asrReplacements = check.rules;
@@ -1230,7 +1260,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       if (rules.length === 0) {
         listEl.createDiv({
           cls: "vm-replacements-empty",
-          text: "No custom vocabulary rules configured yet.",
+          text: t("No custom vocabulary rules configured yet."),
         });
         return;
       }
@@ -1240,15 +1270,15 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         const fromInput = row.createEl("input", {
           type: "text",
           value: rule.from.join(", "),
-          placeholder: "Spoken aliases (comma-separated)",
+          placeholder: t("Spoken aliases (comma-separated)"),
         });
         row.createSpan({ cls: "vm-replacement-arrow", text: "->" });
         const toInput = row.createEl("input", {
           type: "text",
           value: rule.to,
-          placeholder: "Replacement term",
+          placeholder: t("Replacement term"),
         });
-        const removeBtn = row.createEl("button", { text: "Remove" });
+        const removeBtn = row.createEl("button", { text: t("Remove") });
 
         const applyEdit = async (): Promise<void> => {
           const nextAliases = parseAliasList(fromInput.value);
@@ -1262,7 +1292,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           if (nextAliases.length === 0 || !nextTo) {
             fromInput.value = rule.from.join(", ");
             toInput.value = rule.to;
-            new Notice("Both spoken aliases and target term are required.");
+            new Notice(t("Both spoken aliases and target term are required."));
             return;
           }
           const copy: AsrReplacement[] = currentRules().map((item, idx) =>
@@ -1296,20 +1326,20 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const addRow = panel.createDiv({ cls: "vm-replacement-row vm-replacement-add-row" });
     const newFromInput = addRow.createEl("input", {
       type: "text",
-      placeholder: "Aliases (e.g. 光四点, 光4点)",
+      placeholder: t("Aliases (e.g. 光四点, 光4点)"),
     });
     addRow.createSpan({ cls: "vm-replacement-arrow", text: "->" });
     const newToInput = addRow.createEl("input", {
       type: "text",
-      placeholder: "Target term (e.g. Obsidian)",
+      placeholder: t("Target term (e.g. Obsidian)"),
     });
-    const addBtn = addRow.createEl("button", { cls: "mod-cta", text: "Add rule" });
+    const addBtn = addRow.createEl("button", { cls: "mod-cta", text: t("Add rule") });
 
     const submitNewRule = async (): Promise<void> => {
       const fromAliases = parseAliasList(newFromInput.value);
       const toVal = newToInput.value.trim();
       if (fromAliases.length === 0 || !toVal) {
-        new Notice("Enter at least one spoken alias and a target replacement term.");
+        new Notice(t("Enter at least one spoken alias and a target replacement term."));
         return;
       }
       const nextRules: AsrReplacement[] = [
@@ -1340,14 +1370,14 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const activeTtsPreset = resolveTtsOpenAiPreset(this.host.settings.ttsPresetId);
     const voiceMeta = this.describeTtsVoiceMeta(currentTtsEngine, this.host.settings.ttsPresetId);
 
-    new Setting(containerEl).setName("Read aloud").setHeading();
+    new Setting(containerEl).setName(t("Read aloud")).setHeading();
 
     new Setting(containerEl)
-      .setName("Speech engine")
-      .setDesc("System speech works immediately with zero downloads. Optional local or cloud engines can be mounted.")
+      .setName(t("Speech engine"))
+      .setDesc(t("System speech works immediately with zero downloads. Optional local or cloud engines can be mounted."))
       .addDropdown((dropdown) => {
         for (const engine of capabilities.allowedTtsEngines) {
-          dropdown.addOption(engine, TTS_ENGINE_LABELS[engine]);
+          dropdown.addOption(engine, t(TTS_ENGINE_LABELS[engine]));
         }
         dropdown.setValue(currentTtsEngine).onChange(async (value) => {
           this.host.settings.ttsEngine = asTtsEngineKind(value);
@@ -1358,9 +1388,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     if (currentTtsEngine === "openai-compat") {
       new Setting(containerEl)
-        .setName("TTS preset")
+        .setName(t("TTS preset"))
         .setDesc(
-          "Choose a cloud or local loopback OpenAI-compatible speech preset, or select custom endpoint.",
+          t("Choose a cloud or local loopback OpenAI-compatible speech preset, or select custom endpoint."),
         )
         .addDropdown((dropdown) => {
           for (const [id, label] of Object.entries(buildTtsPresetOptions())) {
@@ -1376,8 +1406,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     if (currentTtsEngine === "vits-wasm") {
       new Setting(containerEl)
-        .setName("VITS speaker")
-        .setDesc("Select one of the built-in VITS speakers or leave on default.")
+        .setName(t("VITS speaker"))
+        .setDesc(t("Select one of the built-in VITS speakers or leave on default."))
         .addDropdown((dropdown) => {
           for (const [id, label] of Object.entries(buildVitsSpeakerOptions())) {
             dropdown.addOption(id, label);
@@ -1394,7 +1424,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     }
 
     new Setting(containerEl)
-      .setName("Preferred voice name")
+      .setName(t("Preferred voice name"))
       .setDesc(voiceMeta.desc)
       .addText((text) => {
         text
@@ -1408,8 +1438,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     if (currentTtsEngine === "openai-compat" || currentTtsEngine === "mimo") {
       new Setting(containerEl)
-        .setName("TTS model override")
-        .setDesc("Leave empty to use the default speech model for the active provider or preset.")
+        .setName(t("TTS model override"))
+        .setDesc(t("Leave empty to use the default speech model for the active provider or preset."))
         .addText((text) => {
           text
             .setPlaceholder(
@@ -1425,9 +1455,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         });
 
       new Setting(containerEl)
-        .setName("TTS endpoint URL")
+        .setName(t("TTS endpoint URL"))
         .setDesc(
-          "Optional HTTPS or loopback HTTP speech endpoint URL. Plaintext HTTP is blocked for remote hosts.",
+          t("Optional HTTPS or loopback HTTP speech endpoint URL. Plaintext HTTP is blocked for remote hosts."),
         )
         .addText((text) => {
           text
@@ -1452,7 +1482,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       const presetScope =
         currentTtsEngine === "openai-compat" ? this.host.settings.ttsPresetId : undefined;
       const ttsSecretSetting = new Setting(containerEl)
-        .setName("Speech API key")
+        .setName(t("Speech API key"))
         .setDesc(this.describeTtsSecretDesc(currentTtsEngine, this.host.settings.ttsPresetId));
       this.attachSecretControl(
         ttsSecretSetting,
@@ -1467,8 +1497,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     }
 
     new Setting(containerEl)
-      .setName("Speech rate")
-      .setDesc("Adjust read-aloud playback speed between 0.5x and 2.0x.")
+      .setName(t("Speech rate"))
+      .setDesc(t("Adjust read-aloud playback speed between 0.5x and 2.0x."))
       .addSlider((slider) => {
         slider
           .setLimits(0.5, 2.0, 0.1)
@@ -1480,12 +1510,12 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Markdown table handling")
-      .setDesc("Choose whether Markdown pipe tables are skipped or replaced with a short spoken hint.")
+      .setName(t("Markdown table handling"))
+      .setDesc(t("Choose whether Markdown pipe tables are skipped or replaced with a short spoken hint."))
       .addDropdown((dropdown) => {
         dropdown
-          .addOption("skip", "Skip tables")
-          .addOption("placeholder", "Speak brief placeholder")
+          .addOption("skip", t("Skip tables"))
+          .addOption("placeholder", t("Speak brief placeholder"))
           .setValue(this.host.settings.markdownTablePolicy)
           .onChange(async (value) => {
             this.host.settings.markdownTablePolicy = value as MarkdownTablePolicy;
@@ -1494,11 +1524,11 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Subtitle text size")
-      .setDesc("Choose the font size for the live transcript and read-aloud subtitle card.")
+      .setName(t("Subtitle text size"))
+      .setDesc(t("Choose the font size for the live transcript and read-aloud subtitle card."))
       .addDropdown((dropdown) => {
         for (const key of ["small", "medium", "large"] as const) {
-          dropdown.addOption(key, SUBTITLE_FONT_SIZE_LABELS[key]);
+          dropdown.addOption(key, t(SUBTITLE_FONT_SIZE_LABELS[key]));
         }
         dropdown.setValue(this.host.settings.subtitleFontSize).onChange(async (value) => {
           if (value === "small" || value === "medium" || value === "large") {
@@ -1509,11 +1539,11 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Subtitle card width")
-      .setDesc("Choose the maximum width of the floating subtitle card.")
+      .setName(t("Subtitle card width"))
+      .setDesc(t("Choose the maximum width of the floating subtitle card."))
       .addDropdown((dropdown) => {
         for (const key of ["narrow", "medium", "wide"] as const) {
-          dropdown.addOption(key, SUBTITLE_WIDTH_LABELS[key]);
+          dropdown.addOption(key, t(SUBTITLE_WIDTH_LABELS[key]));
         }
         dropdown.setValue(this.host.settings.subtitleWidth).onChange(async (value) => {
           if (value === "narrow" || value === "medium" || value === "wide") {
@@ -1524,8 +1554,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Stop read-aloud when switching notes")
-      .setDesc("Immediately cancel active read-aloud when opening or switching to another note.")
+      .setName(t("Stop read-aloud when switching notes"))
+      .setDesc(t("Immediately cancel active read-aloud when opening or switching to another note."))
       .addToggle((toggle) => {
         toggle.setValue(this.host.settings.stopReadAloudOnNoteSwitch).onChange(async (value) => {
           this.host.settings.stopReadAloudOnNoteSwitch = value;
@@ -1534,13 +1564,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Barge-in mode")
+      .setName(t("Barge-in mode"))
       .setDesc(
-        "Control hands-free voice interruption during non-system read-aloud. System speech always uses manual stop to avoid speaker echo loops.",
+        t("Control hands-free voice interruption during non-system read-aloud. System speech always uses manual stop to avoid speaker echo loops."),
       )
       .addDropdown((dropdown) => {
         for (const key of ["detect", "auto", "manual"] as const) {
-          dropdown.addOption(key, BARGE_IN_MODE_LABELS[key]);
+          dropdown.addOption(key, t(BARGE_IN_MODE_LABELS[key]));
         }
         dropdown.setValue(this.host.settings.bargeInMode).onChange(async (value) => {
           if (value === "detect" || value === "auto" || value === "manual") {
@@ -1556,12 +1586,12 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const currentPresetId = this.host.settings.llmPresetId;
     const activePreset = LLM_PRESETS[currentPresetId];
 
-    new Setting(containerEl).setName("AI model").setHeading();
+    new Setting(containerEl).setName(t("AI model")).setHeading();
 
     new Setting(containerEl)
-      .setName("Enable optional BYOK voice assistant")
+      .setName(t("Enable optional BYOK voice assistant"))
       .setDesc(
-        "Leave disabled for strictly offline dictation and read-aloud. Ask AI about selection or note uses your own model provider with automatic CORS fallback. Volcengine endpoints accept model names or an ep-xxx endpoint ID.",
+        t("Leave disabled for strictly offline dictation and read-aloud. Ask AI about selection or note uses your own model provider with automatic CORS fallback. Volcengine endpoints accept model names or an ep-xxx endpoint ID."),
       )
       .addToggle((toggle) => {
         toggle.setValue(this.host.settings.enableVoiceQa).onChange(async (value) => {
@@ -1571,9 +1601,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Post-dictation LLM polish")
+      .setName(t("Post-dictation LLM polish"))
       .setDesc(
-        "Apply minimal typo, homophone, and punctuation cleanup after dictation with 4-layer anti-hallucination guards. Falls back to original text on any error.",
+        t("Apply minimal typo, homophone, and punctuation cleanup after dictation with 4-layer anti-hallucination guards. Falls back to original text on any error."),
       )
       .addToggle((toggle) => {
         toggle.setValue(this.host.settings.enableLlmPolish).onChange(async (value) => {
@@ -1583,13 +1613,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Provider preset")
+      .setName(t("Provider preset"))
       .setDesc(
-        "Choose a BYOK cloud provider or local loopback server. Direct CORS works with DeepSeek, Qwen, Kimi, SiliconFlow, OpenRouter, and Anthropic; automatic CORS fallback handles Volcengine, OpenAI, and Ollama loopback.",
+        t("Choose a BYOK cloud provider or local loopback server. Direct CORS works with DeepSeek, Qwen, Kimi, SiliconFlow, OpenRouter, and Anthropic; automatic CORS fallback handles Volcengine, OpenAI, and Ollama loopback."),
       )
       .addDropdown((dropdown) => {
         for (const presetId of LLM_PRESET_IDS) {
-          dropdown.addOption(presetId, LLM_PRESETS[presetId].label);
+          dropdown.addOption(presetId, presetLabel(LLM_PRESETS[presetId].label));
         }
         dropdown.setValue(this.host.settings.llmPresetId).onChange(async (value) => {
           this.host.settings.llmPresetId = asLlmPresetId(value);
@@ -1599,9 +1629,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     const llmSecretSetting = new Setting(containerEl)
-      .setName("Provider API key")
+      .setName(t("Provider API key"))
       .setDesc(
-        `Select a secret stored in Obsidian secret storage for ${activePreset.label} (suggested ID: ${toSecretId("llm", currentPresetId)}).`,
+        t(
+          "Select a secret stored in Obsidian secret storage for {0} (suggested ID: {1}).",
+          presetLabel(activePreset.label),
+          toSecretId("llm", currentPresetId),
+        ),
       );
     this.attachSecretControl(
       llmSecretSetting,
@@ -1613,8 +1647,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     );
 
     new Setting(containerEl)
-      .setName("Model identifier override")
-      .setDesc("Leave empty to use the default model defined by the selected preset.")
+      .setName(t("Model identifier override"))
+      .setDesc(t("Leave empty to use the default model defined by the selected preset."))
       .addText((text) => {
         text
           .setPlaceholder(activePreset.defaultModel || "model-name")
@@ -1626,8 +1660,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     new Setting(containerEl)
-      .setName("Endpoint URL override")
-      .setDesc("Optional HTTPS or loopback HTTP base URL. Plaintext HTTP is blocked for remote hosts.")
+      .setName(t("Endpoint URL override"))
+      .setDesc(t("Optional HTTPS or loopback HTTP base URL. Plaintext HTTP is blocked for remote hosts."))
       .addText((text) => {
         text
           .setPlaceholder(activePreset.defaultBaseUrl || "https://example.com/v1")
@@ -1648,26 +1682,29 @@ export class VoiceModeSettingTab extends PluginSettingTab {
   private renderModelsAndPrivacySection(containerEl: HTMLElement): void {
     const { capabilities } = this.host;
 
-    new Setting(containerEl).setName("Models and privacy").setHeading();
+    new Setting(containerEl).setName(t("Models and privacy")).setHeading();
 
     this.renderRuntimeBanner(containerEl);
     this.renderOfflineModelCard(containerEl);
 
     if (capabilities.allowLocalWasmModels) {
       new Setting(containerEl)
-        .setName("Model download host")
+        .setName(t("Model download host"))
         .setDesc(
-          `Allowlisted HTTPS host (${ALLOWED_MODEL_HOSTNAMES.join(", ")}) for optional desktop model downloads stored outside the vault.`,
+          t(
+            "Allowlisted HTTPS host ({0}) for optional desktop model downloads stored outside the vault.",
+            ALLOWED_MODEL_HOSTNAMES.join(", "),
+          ),
         )
         .addDropdown((dropdown) => {
           dropdown
-            .addOption(MODEL_HOST_PRIMARY, "Primary host (huggingface.co)")
-            .addOption(MODEL_HOST_FALLBACK, "Fallback mirror (hf-mirror.com)")
+            .addOption(MODEL_HOST_PRIMARY, t("Primary host (huggingface.co)"))
+            .addOption(MODEL_HOST_FALLBACK, t("Fallback mirror (hf-mirror.com)"))
             .setValue(this.host.settings.modelMirrorHost)
             .onChange(async (value) => {
               const validated = validateModelHost(value);
               if (!validated) {
-                new Notice("Selected model host is not on the allowlist.");
+                new Notice(t("Selected model host is not on the allowlist."));
                 return;
               }
               this.host.settings.modelMirrorHost = validated;
@@ -1676,9 +1713,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         });
 
       new Setting(containerEl)
-        .setName("Custom external model cache path")
+        .setName(t("Custom external model cache path"))
         .setDesc(
-          "Optional absolute path outside the vault for desktop offline models (useful for sandboxed Linux packages).",
+          t("Optional absolute path outside the vault for desktop offline models (useful for sandboxed Linux packages)."),
         )
         .addText((text) => {
           text
@@ -1698,9 +1735,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         });
 
       new Setting(containerEl)
-        .setName("Idle model unload timeout")
+        .setName(t("Idle model unload timeout"))
         .setDesc(
-          "Minutes of inactivity before unloading the local WASM worker to free memory (0 keeps it loaded).",
+          t("Minutes of inactivity before unloading the local WASM worker to free memory (0 keeps it loaded)."),
         )
         .addSlider((slider) => {
           slider
@@ -1715,8 +1752,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     if (capabilities.allowLocalDaemon) {
       new Setting(containerEl)
-        .setName("Local daemon URL")
-        .setDesc("Loopback address for an optional local voice daemon on desktop.")
+        .setName(t("Local daemon URL"))
+        .setDesc(t("Loopback address for an optional local voice daemon on desktop."))
         .addText((text) => {
           text
             .setPlaceholder(DEFAULT_LOCAL_DAEMON_URL)
@@ -1735,9 +1772,12 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
       if (this.resolveEffectiveAsr() === "daemon" || this.resolveEffectiveTts() === "kokoro-daemon") {
         const daemonSecretSetting = new Setting(containerEl)
-          .setName("Daemon auth token")
+          .setName(t("Daemon auth token"))
           .setDesc(
-            `Select an optional bearer token stored in Obsidian secret storage for the local voice daemon (suggested ID: ${toSecretId("daemon", "local")}).`,
+            t(
+              "Select an optional bearer token stored in Obsidian secret storage for the local voice daemon (suggested ID: {0}).",
+              toSecretId("daemon", "local"),
+            ),
           );
         this.attachSecretControl(
           daemonSecretSetting,
@@ -1751,8 +1791,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     }
 
     new Setting(containerEl)
-      .setName("Allow cloud fallback on mobile")
-      .setDesc("Allow optional BYOK cloud speech endpoints when running on iOS or Android.")
+      .setName(t("Allow cloud fallback on mobile"))
+      .setDesc(t("Allow optional BYOK cloud speech endpoints when running on iOS or Android."))
       .addToggle((toggle) => {
         toggle.setValue(this.host.settings.allowCloudFallbackOnMobile).onChange(async (value) => {
           this.host.settings.allowCloudFallbackOnMobile = value;
@@ -1768,17 +1808,17 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const header = card.createDiv({ cls: "vm-model-card-header" });
     header.createSpan({
       cls: "vm-model-card-title",
-      text: "Offline dictation models (Silero VAD + SenseVoice int8 + WASM)",
+      text: t("Offline dictation models (Silero VAD + SenseVoice int8 + WASM)"),
     });
     const statusBadge = header.createSpan({
       cls: "vm-model-badge-missing",
-      text: capabilities.allowLocalWasmModels ? "Checking..." : "Disabled on mobile",
+      text: capabilities.allowLocalWasmModels ? t("Checking...") : t("Disabled on mobile"),
     });
 
     if (!capabilities.allowLocalWasmModels) {
       card.createDiv({
         cls: "vm-model-meta",
-        text: MOBILE_WASM_RESTRICTION_REASON,
+        text: t(MOBILE_WASM_RESTRICTION_REASON),
       });
       return;
     }
@@ -1793,7 +1833,16 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     card.createDiv({
       cls: "vm-model-meta",
-      text: `Explicit download (~${formatMegabytes(expectedTotalBytes)} unpacked, SHA256-verified, zero vault pollution). Upstream licenses: Silero VAD (${vadBundle.license}), SenseVoice (${senseBundle.license}, ${ALLOWED_MODEL_HOSTNAMES.join(" / ")}), sherpa-onnx ${SHERPA_WASM_RUNTIME_202.version} WASM (${SHERPA_WASM_RUNTIME_202.license}, ${ALLOWED_WASM_HOSTNAMES.join(" / ")}).`,
+      text: t(
+        "Explicit download (~{0} unpacked, SHA256-verified, zero vault pollution). Upstream licenses: Silero VAD ({1}), SenseVoice ({2}, {3}), sherpa-onnx {4} WASM ({5}, {6}).",
+        formatMegabytes(expectedTotalBytes),
+        vadBundle.license,
+        senseBundle.license,
+        ALLOWED_MODEL_HOSTNAMES.join(" / "),
+        SHERPA_WASM_RUNTIME_202.version,
+        SHERPA_WASM_RUNTIME_202.license,
+        ALLOWED_WASM_HOSTNAMES.join(" / "),
+      ),
     });
 
     card.createDiv({ cls: "vm-model-divider" });
@@ -1801,21 +1850,25 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const vitsHeader = card.createDiv({ cls: "vm-model-card-header" });
     vitsHeader.createSpan({
       cls: "vm-model-card-title",
-      text: "Optional offline speech synthesis (VITS)",
+      text: t("Optional offline speech synthesis (VITS)"),
     });
     const vitsStatusBadge = vitsHeader.createSpan({
       cls: "vm-model-badge-missing",
-      text: "Optional, not installed",
+      text: t("Optional, not installed"),
     });
 
     card.createDiv({
       cls: "vm-model-meta",
-      text: `Optional local Mandarin read-aloud model (~${formatMegabytes(vitsBundle.totalBytes)} unpacked, 5 speakers, license: ${vitsBundle.license}).`,
+      text: t(
+        "Optional local Mandarin read-aloud model (~{0} unpacked, 5 speakers, license: {1}).",
+        formatMegabytes(vitsBundle.totalBytes),
+        vitsBundle.license,
+      ),
     });
 
     const detailLine = card.createDiv({
       cls: "vm-model-meta vm-cache-path",
-      text: `Cache path: ${capabilities.externalModelCacheDir}`,
+      text: t("Cache path: {0}", capabilities.externalModelCacheDir),
     });
 
     const progressWrap = card.createDiv({ cls: "vm-model-progress-wrap vm-subtitle-hidden" });
@@ -1826,47 +1879,47 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const actions = card.createDiv({ cls: "vm-model-actions" });
     const downloadBtn = actions.createEl("button", {
       cls: "mod-cta",
-      text: "Download or verify models",
+      text: t("Download or verify models"),
     });
     const downloadVitsBtn = actions.createEl("button", {
-      text: "Download optional VITS model",
+      text: t("Download optional VITS model"),
     });
     const cancelBtn = actions.createEl("button", {
       cls: "vm-subtitle-hidden",
-      text: "Cancel download",
+      text: t("Cancel download"),
     });
     const openDirBtn = actions.createEl("button", {
-      text: "Open cache folder",
+      text: t("Open cache folder"),
     });
     const clearBtn = actions.createEl("button", {
-      text: "Clear cached models",
+      text: t("Clear cached models"),
     });
 
     const applyStatusToUi = (status: DictationStackStatus | null): void => {
       if (!status) {
         statusBadge.className = "vm-model-badge-missing";
-        statusBadge.setText("Unavailable");
+        statusBadge.setText(t("Unavailable"));
         vitsStatusBadge.className = "vm-model-badge-missing";
-        vitsStatusBadge.setText("Optional, not installed");
+        vitsStatusBadge.setText(t("Optional, not installed"));
         return;
       }
       const combinedVerifiedBytes = status.totalVerifiedBytes + status.vitsVerifiedBytes;
       detailLine.setText(
-        `Cache path: ${status.cacheDir} | Verified: ${formatMegabytes(combinedVerifiedBytes)}`,
+        t("Cache path: {0} | Verified: {1}", status.cacheDir, formatMegabytes(combinedVerifiedBytes)),
       );
       if (status.ready) {
         statusBadge.className = "vm-model-badge-ready";
-        statusBadge.setText("Ready (SHA256 verified)");
+        statusBadge.setText(t("Ready (SHA256 verified)"));
       } else {
         statusBadge.className = "vm-model-badge-missing";
-        statusBadge.setText(`Not installed (${status.missingOrCorruptFiles.length} pending)`);
+        statusBadge.setText(t("Not installed ({0} pending)", status.missingOrCorruptFiles.length));
       }
       if (status.vitsReady) {
         vitsStatusBadge.className = "vm-model-badge-ready";
-        vitsStatusBadge.setText("Ready");
+        vitsStatusBadge.setText(t("Ready"));
       } else {
         vitsStatusBadge.className = "vm-model-badge-missing";
-        vitsStatusBadge.setText("Optional, not installed");
+        vitsStatusBadge.setText(t("Optional, not installed"));
       }
     };
 
@@ -1884,7 +1937,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     if (this.host.isDownloadingModels?.()) {
       setBusyUi(true);
-      progressLabel.setText("Download in progress...");
+      progressLabel.setText(t("Download in progress..."));
     }
 
     void this.host
@@ -1892,7 +1945,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       .then((status) => applyStatusToUi(status))
       .catch((err: unknown) => {
         const msg = redactSecrets(err instanceof Error ? err.message : String(err));
-        detailLine.setText(`Cache status error: ${msg}`);
+        detailLine.setText(t("Cache status error: {0}", msg));
       });
 
     downloadBtn.addEventListener("click", () => {
@@ -1901,27 +1954,27 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       }
       setBusyUi(true);
       progressBar.setCssProps({ "--vm-progress-width": "0%" });
-      progressLabel.setText("Starting verified model download...");
+      progressLabel.setText(t("Starting verified model download..."));
 
       void this.host
         .startModelDownload((progress) => {
           const pct = Math.max(0, Math.min(100, progress.percent ?? 0));
           progressBar.setCssProps({ "--vm-progress-width": `${pct}%` });
           progressLabel.setText(
-            `${progress.phase}: ${progress.file} (${pct}% via ${progress.host})`,
+            t("{0}: {1} ({2}% via {3})", t(progress.phase), progress.file, pct, progress.host),
           );
         })
         .then((status) => {
           applyStatusToUi(status);
           progressBar.setCssProps({ "--vm-progress-width": "100%" });
-          progressLabel.setText("All offline dictation models verified and ready.");
+          progressLabel.setText(t("All offline dictation models verified and ready."));
           if (this.containerEl.isConnected) {
             this.refreshTab();
           }
         })
         .catch((err: unknown) => {
           const msg = redactSecrets(err instanceof Error ? err.message : String(err));
-          progressLabel.setText(`Download stopped: ${msg}`);
+          progressLabel.setText(t("Download stopped: {0}", msg));
         })
         .finally(() => {
           setBusyUi(false);
@@ -1934,27 +1987,27 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       }
       setBusyUi(true);
       progressBar.setCssProps({ "--vm-progress-width": "0%" });
-      progressLabel.setText("Starting optional VITS model download...");
+      progressLabel.setText(t("Starting optional VITS model download..."));
 
       void this.host
         .startVitsModelDownload((progress) => {
           const pct = Math.max(0, Math.min(100, progress.percent ?? 0));
           progressBar.setCssProps({ "--vm-progress-width": `${pct}%` });
           progressLabel.setText(
-            `${progress.phase}: ${progress.file} (${pct}% via ${progress.host})`,
+            t("{0}: {1} ({2}% via {3})", t(progress.phase), progress.file, pct, progress.host),
           );
         })
         .then((status) => {
           applyStatusToUi(status);
           progressBar.setCssProps({ "--vm-progress-width": "100%" });
-          progressLabel.setText("All optional VITS speech model files verified and ready.");
+          progressLabel.setText(t("All optional VITS speech model files verified and ready."));
           if (this.containerEl.isConnected) {
             this.refreshTab();
           }
         })
         .catch((err: unknown) => {
           const msg = redactSecrets(err instanceof Error ? err.message : String(err));
-          progressLabel.setText(`Download stopped: ${msg}`);
+          progressLabel.setText(t("Download stopped: {0}", msg));
         })
         .finally(() => {
           setBusyUi(false);
@@ -1963,7 +2016,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     cancelBtn.addEventListener("click", () => {
       this.host.cancelModelDownload?.();
-      progressLabel.setText("Cancelling download (partial .part file preserved for resume)...");
+      progressLabel.setText(t("Cancelling download (partial .part file preserved for resume)..."));
     });
 
     openDirBtn.addEventListener("click", () => {
@@ -1972,7 +2025,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       }
       void this.host.openModelCacheFolder().catch((err: unknown) => {
         const msg = redactSecrets(err instanceof Error ? err.message : String(err));
-        new Notice(`Could not open model cache folder: ${msg}`);
+        new Notice(t("Could not open model cache folder: {0}", msg));
       });
     });
 
@@ -1990,7 +2043,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         })
         .catch((err: unknown) => {
           const msg = redactSecrets(err instanceof Error ? err.message : String(err));
-          new Notice(`Could not clear cached models: ${msg}`);
+          new Notice(t("Could not clear cached models: {0}", msg));
         })
         .finally(() => {
           setBusyUi(false);
@@ -2015,30 +2068,36 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const banner = parentEl.createDiv({ cls: "vm-runtime-banner" });
     this.appendRuntimeRow(
       banner,
-      "Host environment",
-      capabilities.isMobile ? "Mobile (memory-safe mode)" : "Desktop",
+      t("Host environment"),
+      capabilities.isMobile ? t("Mobile (memory-safe mode)") : t("Desktop"),
     );
     this.appendRuntimeRow(
       banner,
-      "Local WASM models",
+      t("Local WASM models"),
       capabilities.allowLocalWasmModels
-        ? `Available on demand (max ${capabilities.maxConcurrentLocalModels} active model, budget ${capabilities.maxLocalModelMemoryMb} MB)`
-        : "Disabled on mobile (OOM safeguard)",
+        ? t(
+          "Available on demand (max {0} active model, budget {1} MB)",
+          capabilities.maxConcurrentLocalModels,
+          capabilities.maxLocalModelMemoryMb,
+        )
+        : t("Disabled on mobile (OOM safeguard)"),
     );
     this.appendRuntimeRow(
       banner,
-      "Secret storage",
-      hasSecretStorage(this.app) ? "Available (Obsidian keychain)" : "Unavailable (upgrade to 1.11.4+)",
+      t("Secret storage"),
+      hasSecretStorage(this.app) ? t("Available (Obsidian keychain)") : t("Unavailable (upgrade to 1.11.4+)"),
     );
     this.appendRuntimeRow(
       banner,
-      "Barge-in policy",
-      bargeIn.allowHandsFreeBargeIn ? "Automatic (native AEC)" : `Manual (${bargeIn.reason})`,
+      t("Barge-in policy"),
+      bargeIn.allowHandsFreeBargeIn ? t("Automatic (native AEC)") : t("Manual ({0})", t(bargeIn.reason)),
     );
     this.appendRuntimeRow(
       banner,
-      "External model cache",
-      this.host.settings.customModelCacheDir || capabilities.externalModelCacheDir,
+      t("External model cache"),
+      capabilities.isMobile
+        ? t("Disabled on mobile (no local WASM models downloaded)")
+        : this.host.settings.customModelCacheDir || capabilities.externalModelCacheDir,
       "vm-cache-path",
     );
   }
