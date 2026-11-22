@@ -17,6 +17,21 @@ import {
   type WorkerVadResultResponse,
 } from './worker-protocol.ts'
 
+function scheduleTimer(callback: () => void, ms?: number): ReturnType<typeof setTimeout> {
+  const fn = typeof setTimeout === 'function' ? setTimeout : undefined
+  if (!fn) {
+    throw new Error('Timer API is unavailable in this runtime')
+  }
+  return fn(callback, ms)
+}
+
+function cancelTimer(id: ReturnType<typeof setTimeout> | undefined): void {
+  const fn = typeof clearTimeout === 'function' ? clearTimeout : undefined
+  if (fn && id !== undefined) {
+    fn(id)
+  }
+}
+
 export type SherpaLoadableTarget = 'vad' | 'asr-offline' | 'tts-vits'
 
 export interface WorkerLike {
@@ -277,7 +292,7 @@ export class SherpaWorkerClient {
     const pendingEntries = Array.from(this.pending.values())
     this.pending.clear()
     for (const entry of pendingEntries) {
-      clearTimeout(entry.timer)
+      cancelTimer(entry.timer)
       entry.reject(unloadReason)
     }
 
@@ -344,7 +359,7 @@ export class SherpaWorkerClient {
 
   private clearIdleTimer(): void {
     if (this.idleTimer !== null) {
-      clearTimeout(this.idleTimer)
+      cancelTimer(this.idleTimer)
       this.idleTimer = null
     }
   }
@@ -354,7 +369,7 @@ export class SherpaWorkerClient {
     if (this.idleUnloadMs <= 0 || this.keepAlive || this.disposed || this.worker === null) {
       return
     }
-    this.idleTimer = setTimeout(() => {
+    this.idleTimer = scheduleTimer(() => {
       this.idleTimer = null
       if (this.activeRequests > 0 || this.keepAlive || this.disposed || this.worker === null) {
         return
@@ -499,7 +514,7 @@ export class SherpaWorkerClient {
     }
 
     return new Promise<WorkerResponse>((resolve, reject) => {
-      const timer = setTimeout(() => {
+      const timer = scheduleTimer(() => {
         this.pending.delete(req.id)
         const err = new Error(`Sherpa worker request ${req.type} (#${req.id}) timed out after ${timeoutMs}ms`)
         this.teardownWorkerSync(err)
@@ -516,7 +531,7 @@ export class SherpaWorkerClient {
           worker.postMessage(req)
         }
       } catch (err) {
-        clearTimeout(timer)
+        cancelTimer(timer)
         this.pending.delete(req.id)
         reject(err instanceof Error ? err : new Error(String(err)))
       }
@@ -530,11 +545,11 @@ export class SherpaWorkerClient {
       const finish = (): void => {
         if (settled) return
         settled = true
-        clearTimeout(timer)
+        cancelTimer(timer)
         worker.onmessage = null
         resolve()
       }
-      const timer = setTimeout(finish, Math.min(this.requestTimeoutMs, DISPOSE_GRACE_TIMEOUT_MS))
+      const timer = scheduleTimer(finish, Math.min(this.requestTimeoutMs, DISPOSE_GRACE_TIMEOUT_MS))
       worker.onmessage = (ev: { data: unknown }) => {
         if (isWorkerResponse(ev?.data) && ev.data.id === req.id) {
           finish()
@@ -552,7 +567,7 @@ export class SherpaWorkerClient {
     if (!isWorkerResponse(data)) return
     const entry = this.pending.get(data.id)
     if (!entry) return
-    clearTimeout(entry.timer)
+    cancelTimer(entry.timer)
     this.pending.delete(data.id)
 
     if (data.type === 'worker:error') {
@@ -575,7 +590,7 @@ export class SherpaWorkerClient {
     const pendingEntries = Array.from(this.pending.values())
     this.pending.clear()
     for (const entry of pendingEntries) {
-      clearTimeout(entry.timer)
+      cancelTimer(entry.timer)
       entry.reject(reason)
     }
 

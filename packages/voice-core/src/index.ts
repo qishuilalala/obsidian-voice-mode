@@ -23,8 +23,13 @@ export {
 export {
   parseEmotionTags,
   stripEmotionTags,
+  buildEmotionPromptInstruction,
+  compileEmotionPlan,
   type EmotionTag,
   type EmotionSegment,
+  type EmotionPromptOptions,
+  type EmotionPlanMode,
+  type CompiledEmotionPlan,
 } from './emotion.ts'
 
 export { redactSecrets, redactBodySnippet } from './redact.ts'
@@ -171,3 +176,23 @@ export {
   type MultipartFilePart,
   type OpenAiCompatAsrOptions,
 } from './asr-engines.ts'
+
+export {
+  DEFAULT_DAEMON_BASE_URL,
+  DEFAULT_DAEMON_PROBE_TIMEOUT_MS,
+  DEFAULT_DAEMON_TIMEOUT_MS,
+  DEFAULT_DAEMON_HEALTH_TTL_MS,
+  DEFAULT_DAEMON_COOLDOWN_MS,
+  DEFAULT_KOKORO_MODEL,
+  DEFAULT_KOKORO_VOICE,
+  KOKORO_MAX_SID,
+  KOKORO_DEFAULT_SPEAKERS,
+  DaemonClientError,
+  resolveDaemonBaseUrl,
+  normalizeKokoroVoice,
+  DaemonClient,
+  type DaemonErrorCode,
+  type KokoroSpeakerPreset,
+  type DaemonHealthResult,
+  type DaemonClientOptions,
+} from './daemon-client.ts'

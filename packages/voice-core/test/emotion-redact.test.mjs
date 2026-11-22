@@ -3,6 +3,8 @@ import assert from 'node:assert/strict'
 import {
   parseEmotionTags,
   stripEmotionTags,
+  buildEmotionPromptInstruction,
+  compileEmotionPlan,
   redactSecrets,
   redactBodySnippet,
 } from '../src/index.ts'
@@ -39,6 +41,54 @@ describe('emotion tag DSL', () => {
     assert.equal(unbalanced.every((s) => s.whisper === false), true)
 
     assert.equal(stripEmotionTags('a<sigh>b<emphasis>c').replace(/\s+/g, ' ').trim(), 'a b c')
+  })
+
+  it('builds concise LLM emotion system instructions respecting allowWhisper, allowBreaks, and maxBreakMs', () => {
+    const full = buildEmotionPromptInstruction()
+    assert.ok(full.includes('<whisper>...</whisper>'))
+    assert.ok(full.includes('<break 300ms>'))
+    assert.ok(/markdown/i.test(full))
+
+    const noWhisper = buildEmotionPromptInstruction({ allowWhisper: false, maxBreakMs: 800 })
+    assert.equal(noWhisper.includes('<whisper>'), false)
+    assert.ok(noWhisper.includes('800ms'))
+
+    const plainOnly = buildEmotionPromptInstruction({ allowWhisper: false, allowBreaks: false })
+    assert.equal(plainOnly.includes('<whisper>'), false)
+    assert.equal(plainOnly.includes('<break'), false)
+  })
+
+  it('compiles emotion plans across pcm-segments, instructions, and strip modes', () => {
+    const sample = '先停一下<break 400ms><whisper>别出声</whisper><sigh>好吧'
+
+    const pcmPlan = compileEmotionPlan(sample, 'pcm-segments')
+    assert.equal(pcmPlan.mode, 'pcm-segments')
+    assert.equal(pcmPlan.plainText, '先停一下 别出声 好吧')
+    assert.equal(pcmPlan.instructions, '')
+    assert.equal(pcmPlan.hasEmotionCues, true)
+    assert.deepEqual(pcmPlan.segments, [
+      { text: '先停一下', whisper: false, preBreakMs: 400 },
+      { text: '别出声', whisper: true },
+      { text: '好吧', whisper: false },
+    ])
+
+    const instPlan = compileEmotionPlan(sample, 'instructions')
+    assert.equal(instPlan.mode, 'instructions')
+    assert.equal(instPlan.plainText, '先停一下 别出声 好吧')
+    assert.equal(instPlan.hasEmotionCues, true)
+    assert.ok(/whisper/i.test(instPlan.instructions))
+    assert.ok(/sigh/i.test(instPlan.instructions))
+    assert.ok(/pause/i.test(instPlan.instructions))
+
+    const stripPlan = compileEmotionPlan(sample, 'strip')
+    assert.equal(stripPlan.mode, 'strip')
+    assert.equal(stripPlan.plainText, '先停一下 别出声 好吧')
+    assert.equal(stripPlan.instructions, '')
+    assert.deepEqual(stripPlan.segments, [{ text: '先停一下 别出声 好吧', whisper: false }])
+
+    const neutralInst = compileEmotionPlan('Plain spoken sentence.', 'instructions')
+    assert.equal(neutralInst.hasEmotionCues, false)
+    assert.equal(neutralInst.instructions, '')
   })
 })
 

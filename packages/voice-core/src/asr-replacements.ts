@@ -41,7 +41,7 @@ export function validateReplacements(rules: unknown): ValidateReplacementsResult
 
   const normalized: AsrReplacement[] = []
   for (let i = 0; i < rules.length; i++) {
-    const item = rules[i]
+    const item: unknown = rules[i]
     if (typeof item !== 'object' || item === null || Array.isArray(item)) {
       return { ok: false, error: `rule[${i}] must be an object` }
     }
@@ -55,7 +55,7 @@ export function validateReplacements(rules: unknown): ValidateReplacementsResult
     }
     const from: string[] = []
     for (let j = 0; j < rawFrom.length; j++) {
-      const entry = rawFrom[j]
+      const entry: unknown = rawFrom[j]
       if (typeof entry !== 'string') {
         return { ok: false, error: `rule[${i}].from[${j}] must be a string` }
       }
@@ -103,8 +103,8 @@ function compilePattern(heard: string): CompiledPattern | null {
     spaced = false
   }
 
-  const first = chars[0]!
-  const last = chars[chars.length - 1]!
+  const first = chars[0]
+  const last = chars[chars.length - 1]
   const requireLeftBound = ASCII_WORD.test(first)
   // Right boundary uses standard negative lookahead (ES3-safe, no lookbehind).
   const tail = ASCII_WORD.test(last) ? '(?![A-Za-z0-9])' : ''
@@ -183,7 +183,7 @@ export function createAsrReplacer(
         continue
       }
 
-      if (hit.requireLeftBound && offset > 0 && ASCII_WORD.test(text[offset - 1]!)) {
+      if (hit.requireLeftBound && offset > 0 && ASCII_WORD.test(text[offset - 1])) {
         // Advance by 1 code unit so shorter/non-ASCII-bounded rules starting later can still match.
         regex.lastIndex = offset + 1
         continue

@@ -1,9 +1,6 @@
 import { defineConfig, globalIgnores } from "eslint/config";
 import obsidianmd from "eslint-plugin-obsidianmd";
 import globals from "globals";
-import tseslint from "typescript-eslint";
-
-const OBSIDIAN_PLUGIN_SCOPE = "packages/obsidian-plugin/**";
 
 const SENTENCE_CASE_BRANDS = [
   "Obsidian",
@@ -17,7 +14,13 @@ const SENTENCE_CASE_BRANDS = [
   "Windows",
   "Linux",
   "OpenAI",
+  "Anthropic",
   "DeepSeek",
+  "Qwen",
+  "Kimi",
+  "SiliconFlow",
+  "OpenRouter",
+  "Volcengine",
   "Ollama",
   "SenseVoice",
   "Silero",
@@ -57,6 +60,7 @@ const SENTENCE_CASE_ACRONYMS = [
   "OK",
   "Q&A",
   "AEC",
+  "CORS",
   "OS",
   "UTF-8",
 ];
@@ -105,47 +109,10 @@ function buildNodeBuiltinImportPaths(packageLabel) {
   }));
 }
 
-function isRootMetadataBlock(block) {
-  return (
-    Array.isArray(block.files) &&
-    block.files.some(
-      (pattern) =>
-        typeof pattern === "string" &&
-        /^(manifest\.json|package\.json|LICENSE(\.md|\.txt)?)$/.test(pattern),
-    )
-  );
-}
-
-function scopePattern(pattern, scope) {
-  if (Array.isArray(pattern)) {
-    return [scope, ...pattern];
-  }
-  return [scope, pattern];
-}
-
-const scopedObsidianRecommended = obsidianmd.configs.recommended.map((block) => {
-  if (isRootMetadataBlock(block)) {
-    return block;
-  }
-  if (Array.isArray(block.files)) {
-    return {
-      ...block,
-      files: block.files.map((pattern) => scopePattern(pattern, OBSIDIAN_PLUGIN_SCOPE)),
-    };
-  }
-  if (block.languageOptions?.globals) {
-    return {
-      ...block,
-      files: [OBSIDIAN_PLUGIN_SCOPE],
-    };
-  }
-  return block;
-});
-
 export default defineConfig([
   globalIgnores([
     "node_modules/**",
-    "dist/**",
+    "**/dist/**",
     "main.js",
     "coverage/**",
     ".scratch/**",
@@ -154,18 +121,23 @@ export default defineConfig([
     "scripts/**",
   ]),
 
-  // Official Obsidian plugin review ruleset scoped to packages/obsidian-plugin/**
-  // plus root manifest.json / package.json / LICENSE checks.
-  ...scopedObsidianRecommended,
+  // Official Obsidian review ruleset (including type-aware @typescript-eslint,
+  // promise safety, comment hygiene, lookbehind, and no-nodejs-modules) applied
+  // across the entire workspace to mirror upstream `scanner-eslint`.
+  ...obsidianmd.configs.recommended,
 
   {
-    files: ["packages/obsidian-plugin/src/**/*.ts"],
+    files: ["**/*.{ts,cts,mts,tsx}"],
     languageOptions: {
       parserOptions: {
         projectService: true,
         tsconfigRootDir: import.meta.dirname,
       },
     },
+  },
+
+  {
+    files: ["packages/obsidian-plugin/src/**/*.ts"],
     rules: {
       "obsidianmd/ui/sentence-case": [
         "error",
@@ -214,40 +186,13 @@ export default defineConfig([
     },
   },
 
-  // Outbound transport adapter intentionally pairs primary fetch (redirect: "error" + ReadableStream)
-  // with Obsidian's requestUrl / desktop zero-redirect CORS fallback while keeping `app` and `localStorage` restricted.
-  {
-    files: ["packages/obsidian-plugin/src/obsidian-http.ts"],
-    rules: {
-      "no-restricted-globals": [
-        "error",
-        {
-          name: "app",
-          message:
-            "Avoid using the global app object. Instead use the reference provided by your plugin instance.",
-        },
-        {
-          name: "localStorage",
-          message:
-            "Prefer `App#saveLocalStorage` / `App#loadLocalStorage` functions to write / read localStorage data that's unique to a vault.",
-        },
-      ],
-    },
-  },
-
-  // Host-agnostic pure TypeScript core (bundled into main.js):
-  // enforce Obsidian runtime safety rules, DOM-free globals, and zero Node/Electron/Obsidian imports.
+  // Host-agnostic pure TypeScript core:
+  // disable Obsidian UI sentence-case (core contains non-UI protocol/prompt strings),
+  // forbid all DOM globals while allowing standard WinterCG `fetch`, and forbid Node/Electron/Obsidian imports.
   {
     files: ["packages/voice-core/src/**/*.ts"],
-    extends: [...tseslint.configs.recommended],
-    plugins: {
-      obsidianmd,
-    },
-    languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: "module",
-    },
     rules: {
+      "obsidianmd/ui/sentence-case": "off",
       "obsidianmd/regex-lookbehind": "error",
       "obsidianmd/no-nodejs-modules": "error",
       "no-eval": "error",
@@ -286,20 +231,15 @@ export default defineConfig([
     },
   },
 
-  // Browser / renderer audio layer (bundled into main.js):
-  // enforce Obsidian runtime safety rules and forbid Obsidian, Electron, Node, and @deepseek-ai/* imports.
+  // Browser / renderer audio & focus layer:
+  // disable Obsidian-only UI sentence-case while keeping full type-aware & safety rules.
   {
     files: ["packages/voice-browser/src/**/*.ts"],
-    extends: [...tseslint.configs.recommended],
-    plugins: {
-      obsidianmd,
-    },
     languageOptions: {
-      ecmaVersion: 2022,
-      sourceType: "module",
       globals: globals.browser,
     },
     rules: {
+      "obsidianmd/ui/sentence-case": "off",
       "obsidianmd/regex-lookbehind": "error",
       "obsidianmd/no-nodejs-modules": "error",
       "no-eval": "error",

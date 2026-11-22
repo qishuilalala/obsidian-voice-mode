@@ -79,7 +79,7 @@ const RAW_SECRET_VALUE_PATTERNS: readonly RegExp[] = [
   /\brk_(?:live|test)_[A-Za-z0-9]{12,}\b/,
   /\bAIza[0-9A-Za-z_-]{20,}\b/,
   /\bgh[pousr]_[A-Za-z0-9]{20,}\b/,
-  /\b[0-9a-f]{32}\b/i,
+  /\b[0-9a-f]{32,128}\b/i,
   /-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----/,
 ];
 
@@ -123,6 +123,7 @@ export interface VoiceModeSettings {
   customModelCacheDir: string;
   workerIdleUnloadMinutes: number;
   daemonUrl: string;
+  daemonTokenSecretId: string;
   allowCloudFallbackOnMobile: boolean;
 }
 
@@ -162,6 +163,7 @@ export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
   customModelCacheDir: "",
   workerIdleUnloadMinutes: 5,
   daemonUrl: DEFAULT_LOCAL_DAEMON_URL,
+  daemonTokenSecretId: "",
   allowCloudFallbackOnMobile: false,
 };
 
@@ -170,6 +172,7 @@ export function createDefaultSettings(): VoiceModeSettings {
     ...DEFAULT_SETTINGS,
     asrModel: DEFAULT_SETTINGS.asrModel,
     enableLlmPolish: DEFAULT_SETTINGS.enableLlmPolish,
+    daemonTokenSecretId: DEFAULT_SETTINGS.daemonTokenSecretId,
     asrReplacements: [],
     ttsApiKeySecretIds: {},
     llmApiKeySecretIds: {},
@@ -222,6 +225,9 @@ function cleanSecretId(value: unknown): string {
     return "";
   }
   const trimmed = value.trim();
+  if (/^[a-z0-9]{32,}$/.test(trimmed)) {
+    return "";
+  }
   return isValidSecretId(trimmed) && !looksLikeRawSecret(trimmed) ? trimmed : "";
 }
 
@@ -565,6 +571,7 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
       ),
     ),
     daemonUrl: sanitizeDaemonUrl(sanitized.daemonUrl),
+    daemonTokenSecretId: cleanSecretId(sanitized.daemonTokenSecretId),
     allowCloudFallbackOnMobile:
       typeof sanitized.allowCloudFallbackOnMobile === "boolean"
         ? sanitized.allowCloudFallbackOnMobile

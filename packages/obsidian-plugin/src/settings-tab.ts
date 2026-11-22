@@ -212,6 +212,12 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         placeholder: "suyingxue",
       };
     }
+    if (engine === "kokoro-daemon") {
+      return {
+        desc: "Optional Kokoro speaker ID or numeric index (for example: zf_001, zm_010, af_heart, or 0..102).",
+        placeholder: "zf_001",
+      };
+    }
     if (engine === "openai-compat") {
       const preset = resolveTtsOpenAiPreset(presetId);
       return {
@@ -558,7 +564,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           },
           {
             name: "Provider preset",
-            desc: "Choose a BYOK cloud provider or a local loopback server such as Ollama.",
+            desc: "Choose a BYOK cloud provider or local loopback server. Direct CORS works with DeepSeek, Qwen, Kimi, SiliconFlow, OpenRouter, and Anthropic; automatic CORS fallback handles Volcengine, OpenAI, and Ollama loopback.",
             control: {
               type: "dropdown",
               key: "llmPresetId",
@@ -669,6 +675,21 @@ export class VoiceModeSettingTab extends PluginSettingTab {
               key: "daemonUrl",
               placeholder: DEFAULT_LOCAL_DAEMON_URL,
               validate: (value) => this.validateLoopbackDaemonMessage(value),
+            },
+          },
+          {
+            name: "Daemon auth token",
+            desc: `Select an optional bearer token stored in Obsidian secret storage for the local voice daemon (suggested ID: ${toSecretId("daemon", "local")}).`,
+            visible: () =>
+              capabilities.allowLocalDaemon &&
+              (this.resolveEffectiveAsr() === "daemon" ||
+                this.resolveEffectiveTts() === "kokoro-daemon"),
+            render: (setting) => {
+              const liveSettings = this.host.settings;
+              this.attachSecretControl(setting, liveSettings.daemonTokenSecretId, async (candidate) => {
+                this.host.settings.daemonTokenSecretId = candidate;
+                await this.host.saveSettings();
+              });
             },
           },
           {
@@ -1563,7 +1584,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     new Setting(containerEl)
       .setName("Provider preset")
-      .setDesc("Choose a BYOK cloud provider or a local loopback server such as Ollama.")
+      .setDesc(
+        "Choose a BYOK cloud provider or local loopback server. Direct CORS works with DeepSeek, Qwen, Kimi, SiliconFlow, OpenRouter, and Anthropic; automatic CORS fallback handles Volcengine, OpenAI, and Ollama loopback.",
+      )
       .addDropdown((dropdown) => {
         for (const presetId of LLM_PRESET_IDS) {
           dropdown.addOption(presetId, LLM_PRESETS[presetId].label);
@@ -1709,6 +1732,22 @@ export class VoiceModeSettingTab extends PluginSettingTab {
               await this.host.saveSettings();
             });
         });
+
+      if (this.resolveEffectiveAsr() === "daemon" || this.resolveEffectiveTts() === "kokoro-daemon") {
+        const daemonSecretSetting = new Setting(containerEl)
+          .setName("Daemon auth token")
+          .setDesc(
+            `Select an optional bearer token stored in Obsidian secret storage for the local voice daemon (suggested ID: ${toSecretId("daemon", "local")}).`,
+          );
+        this.attachSecretControl(
+          daemonSecretSetting,
+          this.host.settings.daemonTokenSecretId,
+          async (candidate) => {
+            this.host.settings.daemonTokenSecretId = candidate;
+            await this.host.saveSettings();
+          },
+        );
+      }
     }
 
     new Setting(containerEl)

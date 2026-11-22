@@ -11,6 +11,16 @@ import {
   type AsrTransport,
   type EndpointPolicy,
 } from './contracts.ts'
+import {
+  cancelTimeout,
+  mergeFloat32Chunks,
+  raceAbort,
+  readBoundedStreamBytes,
+  readRedactedHttpErrorMessage,
+  resolveFetchImpl,
+  resolveSecretValue,
+  scheduleTimeout,
+} from './http-stream.ts'
 import { validateEndpointUrl } from './llm-router.ts'
 import { redactBodySnippet, redactSecrets } from './redact.ts'
 import type { ApiKeyProvider } from './tts-engines.ts'
@@ -153,7 +163,7 @@ export function encodeMonoPcm16Wav(
   view.setUint32(40, dataBytes, true)
 
   for (let i = 0; i < numSamples; i += 1) {
-    const raw = samples[i]!
+    const raw = samples[i]
     const clamped = Number.isNaN(raw) ? 0 : raw < -1 ? -1 : raw > 1 ? 1 : raw
     const pcm = clamped < 0 ? Math.round(clamped * 0x8000) : Math.round(clamped * 0x7fff)
     view.setInt16(44 + i * 2, pcm, true)
@@ -172,8 +182,8 @@ function sanitizeMultipartParam(value: string): string {
 
 function createMultipartBoundary(): string {
   const rand = new Uint8Array(16)
-  if (typeof globalThis.crypto?.getRandomValues === 'function') {
-    globalThis.crypto.getRandomValues(rand)
+  if (typeof crypto !== 'undefined' && typeof crypto.getRandomValues === 'function') {
+    crypto.getRandomValues(rand)
   } else {
     for (let i = 0; i < rand.length; i += 1) {
       rand[i] = Math.floor(Math.random() * 256)
@@ -181,7 +191,7 @@ function createMultipartBoundary(): string {
   }
   let hex = ''
   for (let i = 0; i < rand.length; i += 1) {
-    hex += rand[i]!.toString(16).padStart(2, '0')
+    hex += rand[i].toString(16).padStart(2, '0')
   }
   return `----VoiceModeBoundary${hex}`
 }
@@ -193,7 +203,7 @@ function createMultipartBoundary(): string {
 export function buildMultipartFormData(
   fields: ReadonlyArray<readonly [string, string]>,
   file: MultipartFilePart,
-): { body: Uint8Array; contentType: string } {
+): { body: Uint8Array<ArrayBuffer>; contentType: string } {
   const boundary = createMultipartBoundary()
   const crlf = UTF8_ENCODER.encode('\r\n')
   const parts: Uint8Array[] = []
@@ -271,132 +281,6 @@ interface InflightAsrHandle {
   markAborted: () => void
 }
 
-function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    return Promise.reject(signal.reason ?? new Error('aborted'))
-  }
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      reject(signal.reason ?? new Error('aborted'))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    promise.then(
-      (val) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(val)
-      },
-      (err) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(err)
-      },
-    )
-  })
-}
-
-async function resolveApiKeyValue(provider: ApiKeyProvider | undefined): Promise<string> {
-  if (typeof provider === 'string') return provider.trim()
-  if (typeof provider === 'function') {
-    const val = await provider()
-    return typeof val === 'string' ? val.trim() : ''
-  }
-  return ''
-}
-
-async function readBoundedBytes(
-  res: Response,
-  maxBytes: number,
-  signal: AbortSignal,
-  label: string,
-): Promise<Uint8Array> {
-  const declaredLen = Number(res.headers.get('content-length') ?? '')
-  if (Number.isFinite(declaredLen) && declaredLen > maxBytes) {
-    await res.body?.cancel().catch(() => undefined)
-    throw new AsrProviderError('too_large', `${label} exceeds ${maxBytes} bytes`)
-  }
-
-  if (!res.body || typeof res.body.getReader !== 'function') {
-    const ab = await raceAbort(res.arrayBuffer(), signal)
-    if (ab.byteLength > maxBytes) {
-      throw new AsrProviderError('too_large', `${label} exceeds ${maxBytes} bytes`)
-    }
-    return new Uint8Array(ab)
-  }
-
-  const reader = res.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  try {
-    for (;;) {
-      const { done, value } = await raceAbort(reader.read(), signal)
-      if (done) break
-      if (!value || value.byteLength === 0) continue
-      total += value.byteLength
-      if (total > maxBytes) {
-        await reader.cancel().catch(() => undefined)
-        throw new AsrProviderError('too_large', `${label} exceeds ${maxBytes} bytes`)
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-
-  const merged = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    merged.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return merged
-}
-
-async function readHttpErrorMessage(res: Response, signal: AbortSignal): Promise<string> {
-  const prefix = `HTTP ${res.status}`
-  try {
-    let rawText = ''
-    if (!res.body || typeof res.body.getReader !== 'function') {
-      const ab = await raceAbort(res.arrayBuffer(), signal)
-      rawText = UTF8_DECODER.decode(
-        new Uint8Array(ab, 0, Math.min(ab.byteLength, MAX_ASR_ERROR_BYTES)),
-      )
-    } else {
-      const reader = res.body.getReader()
-      const chunks: Uint8Array[] = []
-      let total = 0
-      try {
-        while (total < MAX_ASR_ERROR_BYTES) {
-          const { done, value } = await raceAbort(reader.read(), signal)
-          if (done || !value) break
-          const take = Math.min(value.byteLength, MAX_ASR_ERROR_BYTES - total)
-          if (take > 0) {
-            chunks.push(value.subarray(0, take))
-            total += take
-          }
-          if (total >= MAX_ASR_ERROR_BYTES) {
-            await reader.cancel().catch(() => undefined)
-          }
-        }
-      } finally {
-        reader.releaseLock()
-      }
-      const merged = new Uint8Array(total)
-      let off = 0
-      for (const c of chunks) {
-        merged.set(c, off)
-        off += c.byteLength
-      }
-      rawText = UTF8_DECODER.decode(merged)
-    }
-
-    // Redact the entire <= 8 KiB body BEFORE truncating so secrets spanning the cut are masked.
-    const redacted = redactSecrets(rawText).replace(/\s+/g, ' ').trim()
-    if (!redacted) return prefix
-    return `${prefix}: ${redacted}`.slice(0, MAX_ERROR_MESSAGE_CHARS)
-  } catch {
-    return prefix
-  }
-}
-
 // ── OpenAI-compatible `/audio/transcriptions` ASR transport ──────────────────
 
 export class OpenAiCompatAsrTransport implements AsrTransport {
@@ -428,7 +312,7 @@ export class OpenAiCompatAsrTransport implements AsrTransport {
       options.maxSpeechSec > 0
         ? options.maxSpeechSec
         : DEFAULT_ENDPOINT_POLICY.maxSpeechSec
-    this.fetchImpl = options.fetchImpl ?? fetch
+    this.fetchImpl = resolveFetchImpl(options.fetchImpl)
     this.sessionMaxSamples = Math.max(0, Math.floor(this.maxSpeechSec * DEFAULT_SAMPLE_RATE))
   }
 
@@ -464,12 +348,7 @@ export class OpenAiCompatAsrTransport implements AsrTransport {
   }
 
   async finalize(signal?: AbortSignal): Promise<AsrTranscriptEvent> {
-    const merged = new Float32Array(this.bufferedSamples)
-    let offset = 0
-    for (const chunk of this.chunks) {
-      merged.set(chunk, offset)
-      offset += chunk.length
-    }
+    const merged = mergeFloat32Chunks(this.chunks, this.bufferedSamples)
     const lang = this.sessionLanguage
     this.chunks = []
     this.bufferedSamples = 0
@@ -524,13 +403,13 @@ export class OpenAiCompatAsrTransport implements AsrTransport {
     }
     options?.signal?.addEventListener('abort', onCallerAbort, { once: true })
 
-    const timer = setTimeout(() => {
+    const timer = scheduleTimeout(() => {
       timedOut = true
       ac.abort(new Error('ASR request timed out'))
     }, this.timeoutMs)
 
     try {
-      const trimmedKey = await resolveApiKeyValue(this.options.apiKey)
+      const trimmedKey = await resolveSecretValue(this.options.apiKey)
       if (abortedByTransport || callerAborted || options?.signal?.aborted || this.closed) {
         throw new AsrProviderError('aborted', 'ASR transcription was aborted')
       }
@@ -591,7 +470,7 @@ export class OpenAiCompatAsrTransport implements AsrTransport {
         this.fetchImpl(endpoint.url, {
           method: 'POST',
           headers,
-          body: multipart.body as Uint8Array<ArrayBuffer>,
+          body: multipart.body,
           signal: ac.signal,
           redirect: 'error',
         }),
@@ -599,15 +478,24 @@ export class OpenAiCompatAsrTransport implements AsrTransport {
       )
 
       if (!res.ok) {
-        const msg = await readHttpErrorMessage(res, ac.signal)
+        const msg = await readRedactedHttpErrorMessage(
+          res,
+          MAX_ASR_ERROR_BYTES,
+          MAX_ERROR_MESSAGE_CHARS,
+          ac.signal,
+        )
         throw new AsrProviderError('http_error', msg, res.status)
       }
 
-      const bodyBytes = await readBoundedBytes(
+      const bodyBytes = await readBoundedStreamBytes(
         res,
         MAX_ASR_RESPONSE_BYTES,
         ac.signal,
-        'ASR transcript response',
+        () =>
+          new AsrProviderError(
+            'too_large',
+            `ASR transcript response exceeds ${MAX_ASR_RESPONSE_BYTES} bytes`,
+          ),
       )
       if (abortedByTransport || callerAborted || options?.signal?.aborted) {
         throw new AsrProviderError('aborted', 'ASR transcription was aborted')
@@ -671,7 +559,7 @@ export class OpenAiCompatAsrTransport implements AsrTransport {
         rawErr instanceof Error ? rawErr.message : String(rawErr),
       )
     } finally {
-      clearTimeout(timer)
+      cancelTimeout(timer)
       options?.signal?.removeEventListener('abort', onCallerAbort)
       this.inflight.delete(handle)
     }

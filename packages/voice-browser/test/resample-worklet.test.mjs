@@ -1,6 +1,7 @@
 import { describe, it } from 'node:test'
 import assert from 'node:assert/strict'
 import { readdirSync, readFileSync } from 'node:fs'
+import { runInNewContext } from 'node:vm'
 import { fileURLToPath } from 'node:url'
 import { join } from 'node:path'
 import {
@@ -109,8 +110,13 @@ describe('audio-worklet-source: CSP static URL, Blob revoke, fractional 44.1kHz 
         registeredName = name
         ProcessorCtor = ctor
       }
-      const run = new Function('sampleRate', 'AudioWorkletProcessor', 'registerProcessor', VOICE_CAPTURE_WORKLET_SOURCE)
-      run(rate, FakeAudioWorkletProcessor, registerProcessor)
+      runInNewContext(VOICE_CAPTURE_WORKLET_SOURCE, {
+        sampleRate: rate,
+        AudioWorkletProcessor: FakeAudioWorkletProcessor,
+        registerProcessor,
+        Float32Array,
+        Math,
+      })
 
       assert.equal(registeredName, VOICE_CAPTURE_PROCESSOR_NAME)
       assert.ok(ProcessorCtor)
@@ -145,9 +151,14 @@ describe('audio-worklet-source: CSP static URL, Blob revoke, fractional 44.1kHz 
         }
       }
     }
-    const run = new Function('sampleRate', 'AudioWorkletProcessor', 'registerProcessor', VOICE_CAPTURE_WORKLET_SOURCE)
-    run(44100, FakeAudioWorkletProcessor, (_name, ctor) => {
-      ProcessorCtor = ctor
+    runInNewContext(VOICE_CAPTURE_WORKLET_SOURCE, {
+      sampleRate: 44100,
+      AudioWorkletProcessor: FakeAudioWorkletProcessor,
+      registerProcessor: (_name, ctor) => {
+        ProcessorCtor = ctor
+      },
+      Float32Array,
+      Math,
     })
 
     const proc = new ProcessorCtor()

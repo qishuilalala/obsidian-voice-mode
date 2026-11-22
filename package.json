@@ -14,13 +14,14 @@
     "node": ">=22.18.0"
   },
   "scripts": {
+    "build:packages": "node scripts/build-packages.mjs",
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
-    "typecheck": "pnpm -r run typecheck",
+    "typecheck": "tsc -p tsconfig.json --noEmit && pnpm -r run typecheck",
     "lint": "eslint --max-warnings 0 .",
-    "test": "pnpm -r run test",
+    "test": "pnpm run build:packages && pnpm -r run test",
     "check:release": "node scripts/check-release-gate.mjs",
-    "check:all": "pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build && pnpm run check:release",
+    "check:all": "pnpm run build:packages && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build && pnpm run check:release",
     "version": "node scripts/version-bump.mjs"
   },
   "devDependencies": {

@@ -11,6 +11,10 @@
     "esModuleInterop": true,
     "isolatedModules": true,
     "verbatimModuleSyntax": true,
-    "resolveJsonModule": true
+    "resolveJsonModule": true,
+    "paths": {
+      "@voice-mode/core": ["./packages/voice-core/src/index.ts"],
+      "@voice-mode/browser": ["./packages/voice-browser/src/index.ts"]
+    }
   }
 }

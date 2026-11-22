@@ -215,7 +215,7 @@ export async function createBrowserMicCapture(
 
 function concatFloat32Chunks(chunks: Float32Array[], totalSamples: number): Float32Array {
   if (totalSamples <= 0 || chunks.length === 0) return new Float32Array(0)
-  if (chunks.length === 1 && chunks[0]!.length === totalSamples) return chunks[0]!
+  if (chunks.length === 1 && chunks[0].length === totalSamples) return chunks[0]
   const out = new Float32Array(totalSamples)
   let offset = 0
   for (const chunk of chunks) {
@@ -235,7 +235,7 @@ function computePeakWindowRms(samples: Float32Array): number {
     const len = end - offset
     let sumSq = 0
     for (let i = offset; i < end; i++) {
-      const v = samples[i]!
+      const v = samples[i]
       sumSq += v * v
     }
     const rms = Math.sqrt(sumSq / len)

@@ -911,6 +911,9 @@ describe('OfflineDictationSession: toggle, single, push-to-talk, 640ms pre-roll,
         }
       }
 
+      const captureWorkletNode = (node) => {
+        workletNodeRef = node
+      }
       globalThis.AudioWorkletNode = class FakeAudioWorkletNode {
         constructor(_ctx, name, opts) {
           assert.equal(name, VOICE_CAPTURE_PROCESSOR_NAME)
@@ -920,7 +923,7 @@ describe('OfflineDictationSession: toggle, single, push-to-talk, 640ms pre-roll,
             postMessage: (msg) => events.push(`port:post:${msg.type}`),
           }
           this.onprocessorerror = null
-          workletNodeRef = this
+          captureWorkletNode(this)
         }
         connect(dest) {
           if ('gain' in dest) {

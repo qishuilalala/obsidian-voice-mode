@@ -31,9 +31,23 @@ const BARE: ReadonlyArray<RegExp> = [
   /\b[0-9a-f]{32}\b/gi,
 ]
 
+function coerceText(value: unknown): string {
+  if (typeof value === 'string') return value
+  if (value === null || value === undefined) return ''
+  if (typeof value === 'number' || typeof value === 'boolean' || typeof value === 'bigint') {
+    return String(value)
+  }
+  if (value instanceof Error) return value.message
+  try {
+    return JSON.stringify(value) ?? ''
+  } catch {
+    return ''
+  }
+}
+
 /** Replace secret-like values with `<redacted>` while keeping model slugs, paths, and SHA256 digests intact. */
 export function redactSecrets(text: unknown): string {
-  let out = typeof text === 'string' ? text : String(text ?? '')
+  let out = coerceText(text)
   for (const { re, to } of PREFIXED) out = out.replace(re, to)
   for (const re of BARE) out = out.replace(re, '<redacted>')
   return out
@@ -41,7 +55,7 @@ export function redactSecrets(text: unknown): string {
 
 /** Redact an HTTP response body over a generous window before truncating to at most `maxLength` characters. */
 export function redactBodySnippet(body: unknown, maxLength = 200): string {
-  const raw = typeof body === 'string' ? body : String(body ?? '')
+  const raw = coerceText(body)
   if (maxLength <= 0) return ''
   const preWindow = Math.max(maxLength * 4, 2048)
   return redactSecrets(raw.slice(0, preWindow)).slice(0, maxLength)

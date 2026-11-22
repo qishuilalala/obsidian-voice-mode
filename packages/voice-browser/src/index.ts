@@ -117,3 +117,13 @@ export {
   type BargeInEvent,
   type AecBargeInMonitorOptions,
 } from './barge-in-monitor.ts'
+
+export {
+  resolveDeepActiveElement,
+  insertIntoInputOrTextarea,
+  dispatchSyntheticPaste,
+  insertIntoFocusedInput,
+  FocusTextInjector,
+  type DomConstructorWindow,
+  type FocusTextInjectorOptions,
+} from './focus-injector.ts'

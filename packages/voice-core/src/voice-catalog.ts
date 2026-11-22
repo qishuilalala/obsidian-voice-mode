@@ -202,7 +202,7 @@ export const TTS_OPENAI_PRESETS: Readonly<Record<string, TtsOpenAiPreset>> = {
 }
 
 export function resolveTtsOpenAiPreset(presetId: string): TtsOpenAiPreset | null {
-  return Object.hasOwn(TTS_OPENAI_PRESETS, presetId) ? TTS_OPENAI_PRESETS[presetId]! : null
+  return Object.hasOwn(TTS_OPENAI_PRESETS, presetId) ? TTS_OPENAI_PRESETS[presetId] : null
 }
 
 export function ttsPresetRequiresKey(presetId: string | null | undefined): boolean {

@@ -22,7 +22,7 @@ export function resampleLinear(src: Float32Array, srcRate: number, dstRate: numb
     const i0 = Math.floor(pos)
     const i1 = Math.min(i0 + 1, src.length - 1)
     const frac = pos - i0
-    out[i] = src[i0]! + (src[i1]! - src[i0]!) * frac
+    out[i] = src[i0] + (src[i1] - src[i0]) * frac
   }
   return out
 }

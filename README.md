@@ -1,4 +1,4 @@
-# Voice Mode for Obsidian
+# Voice Mode
 
 English | [简体中文](README.zh-CN.md)
 

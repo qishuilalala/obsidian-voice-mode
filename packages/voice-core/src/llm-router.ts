@@ -4,6 +4,7 @@
  */
 
 import type { LlmPresetId } from './engine-kind.ts'
+import { cancelTimeout, resolveFetchImpl, scheduleTimeout } from './http-stream.ts'
 import { redactBodySnippet, redactSecrets } from './redact.ts'
 
 export type LlmProtocol = 'openai-compat' | 'anthropic-messages'
@@ -187,14 +188,14 @@ async function readErrorSnippet(res: Response): Promise<string> {
 interface Watchdog { kick: () => void; stop: () => void; didTimeout: () => boolean }
 
 function createWatchdog(ac: AbortController, ms: number): Watchdog {
-  let timer: ReturnType<typeof setTimeout> | undefined
+  let timer: ReturnType<typeof scheduleTimeout> | undefined
   let timedOut = false
   let stopped = false
-  const stop = (): void => { stopped = true; if (timer !== undefined) { clearTimeout(timer); timer = undefined } }
+  const stop = (): void => { stopped = true; if (timer !== undefined) { cancelTimeout(timer); timer = undefined } }
   const kick = (): void => {
     if (stopped) return
-    if (timer !== undefined) clearTimeout(timer)
-    timer = setTimeout(() => { timedOut = true; ac.abort(new Error('llm request timed out')) }, ms)
+    if (timer !== undefined) cancelTimeout(timer)
+    timer = scheduleTimeout(() => { timedOut = true; ac.abort(new Error('llm request timed out')) }, ms)
   }
   return { kick, stop, didTimeout: () => timedOut }
 }
@@ -205,7 +206,7 @@ async function openResponse(
   req: LlmChatRequest,
   stream: boolean,
 ): Promise<{ res: Response; ac: AbortController; idleMs: number; cleanup: () => void }> {
-  const fetchImpl = config.fetchImpl ?? fetch
+  const fetchImpl = resolveFetchImpl(config.fetchImpl)
   const { headers, body } = buildRequestInit(config, endpoint, req, stream)
   const ac = new AbortController()
   const onAbort = (): void => ac.abort(req.signal?.reason)
@@ -361,11 +362,11 @@ function normalizedSimilarity(a: string, b: string): number {
   for (let i = 1; i <= x.length; i++) {
     const cur = [i]
     for (let j = 1; j <= y.length; j++) {
-      cur[j] = Math.min(prev[j]! + 1, cur[j - 1]! + 1, prev[j - 1]! + (x[i - 1] === y[j - 1] ? 0 : 1))
+      cur[j] = Math.min(prev[j] + 1, cur[j - 1] + 1, prev[j - 1] + (x[i - 1] === y[j - 1] ? 0 : 1))
     }
     prev = cur
   }
-  return 1 - prev[y.length]! / n
+  return 1 - prev[y.length] / n
 }
 
 export function correctionSystem(lang: 'zh' | 'en'): string {

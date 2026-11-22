@@ -105,11 +105,11 @@ function raceWithSignal<T>(promise: Promise<T>, signal: AbortSignal): Promise<T>
         signal.removeEventListener('abort', onAbort)
         resolve(val)
       },
-      (err) => {
+      (err: unknown) => {
         if (settled) return
         settled = true
         signal.removeEventListener('abort', onAbort)
-        reject(err)
+        reject(err instanceof Error ? err : new Error(String(err)))
       },
     )
   })

@@ -7,6 +7,16 @@
 
 import type { TtsEngine, TtsEngineStatus, TtsSynthOptions, TtsSynthResult } from './contracts.ts'
 import { stripEmotionTags } from './emotion.ts'
+import {
+  cancelTimeout,
+  raceAbort,
+  readBoundedStreamBytes,
+  readRedactedHttpErrorMessage,
+  resolveFetchImpl,
+  resolveSecretValue,
+  scheduleTimeout,
+  type SecretValueProvider,
+} from './http-stream.ts'
 import { validateEndpointUrl } from './llm-router.ts'
 import { redactSecrets } from './redact.ts'
 import {
@@ -51,7 +61,7 @@ export class TtsProviderError extends Error {
   }
 }
 
-export type ApiKeyProvider = string | (() => Promise<string | null> | string | null)
+export type ApiKeyProvider = SecretValueProvider
 
 export interface ResolveOpenAiTtsConfigInput {
   presetId?: string
@@ -128,7 +138,7 @@ export function sniffAudioMime(bytes: Uint8Array, contentTypeHeader?: string): s
     return 'audio/mpeg'
   }
   if (bytes.byteLength >= 2 && bytes[0] === 0xff) {
-    const b1 = bytes[1]!
+    const b1 = bytes[1]
     if ((b1 & 0xe0) === 0xe0 && (b1 & 0x18) !== 0x08 && (b1 & 0x06) !== 0x00) {
       return 'audio/mpeg'
     }
@@ -204,7 +214,7 @@ const B64_TABLE: Int8Array = (() => {
 
 function lookupB64(code: number): number {
   if (code < 0 || code >= 128) return -1
-  return B64_TABLE[code]!
+  return B64_TABLE[code]
 }
 
 /**
@@ -340,130 +350,6 @@ interface InflightHandle {
   markInterrupted: () => void
 }
 
-function raceAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<T> {
-  if (signal.aborted) {
-    return Promise.reject(signal.reason ?? new Error('aborted'))
-  }
-  return new Promise<T>((resolve, reject) => {
-    const onAbort = (): void => {
-      reject(signal.reason ?? new Error('aborted'))
-    }
-    signal.addEventListener('abort', onAbort, { once: true })
-    promise.then(
-      (val) => {
-        signal.removeEventListener('abort', onAbort)
-        resolve(val)
-      },
-      (err) => {
-        signal.removeEventListener('abort', onAbort)
-        reject(err)
-      },
-    )
-  })
-}
-
-async function resolveApiKeyValue(provider: ApiKeyProvider | undefined): Promise<string> {
-  if (typeof provider === 'string') return provider.trim()
-  if (typeof provider === 'function') {
-    const val = await provider()
-    return typeof val === 'string' ? val.trim() : ''
-  }
-  return ''
-}
-
-async function readBoundedBytes(
-  res: Response,
-  maxBytes: number,
-  signal: AbortSignal,
-  label: string,
-): Promise<Uint8Array> {
-  const declaredLen = Number(res.headers.get('content-length') ?? '')
-  if (Number.isFinite(declaredLen) && declaredLen > maxBytes) {
-    await res.body?.cancel().catch(() => undefined)
-    throw new TtsProviderError('too_large', `${label} exceeds ${maxBytes} bytes`)
-  }
-
-  if (!res.body || typeof res.body.getReader !== 'function') {
-    const ab = await raceAbort(res.arrayBuffer(), signal)
-    if (ab.byteLength > maxBytes) {
-      throw new TtsProviderError('too_large', `${label} exceeds ${maxBytes} bytes`)
-    }
-    return new Uint8Array(ab)
-  }
-
-  const reader = res.body.getReader()
-  const chunks: Uint8Array[] = []
-  let total = 0
-  try {
-    for (;;) {
-      const { done, value } = await raceAbort(reader.read(), signal)
-      if (done) break
-      if (!value || value.byteLength === 0) continue
-      total += value.byteLength
-      if (total > maxBytes) {
-        await reader.cancel().catch(() => undefined)
-        throw new TtsProviderError('too_large', `${label} exceeds ${maxBytes} bytes`)
-      }
-      chunks.push(value)
-    }
-  } finally {
-    reader.releaseLock()
-  }
-
-  const merged = new Uint8Array(total)
-  let offset = 0
-  for (const chunk of chunks) {
-    merged.set(chunk, offset)
-    offset += chunk.byteLength
-  }
-  return merged
-}
-
-async function readHttpErrorMessage(res: Response, signal: AbortSignal): Promise<string> {
-  const prefix = `HTTP ${res.status}`
-  try {
-    let rawText = ''
-    if (!res.body || typeof res.body.getReader !== 'function') {
-      const ab = await raceAbort(res.arrayBuffer(), signal)
-      rawText = UTF8_DECODER.decode(new Uint8Array(ab, 0, Math.min(ab.byteLength, MAX_TTS_ERROR_BYTES)))
-    } else {
-      const reader = res.body.getReader()
-      const chunks: Uint8Array[] = []
-      let total = 0
-      try {
-        while (total < MAX_TTS_ERROR_BYTES) {
-          const { done, value } = await raceAbort(reader.read(), signal)
-          if (done || !value) break
-          const take = Math.min(value.byteLength, MAX_TTS_ERROR_BYTES - total)
-          if (take > 0) {
-            chunks.push(value.subarray(0, take))
-            total += take
-          }
-          if (total >= MAX_TTS_ERROR_BYTES) {
-            await reader.cancel().catch(() => undefined)
-          }
-        }
-      } finally {
-        reader.releaseLock()
-      }
-      const merged = new Uint8Array(total)
-      let off = 0
-      for (const c of chunks) {
-        merged.set(c, off)
-        off += c.byteLength
-      }
-      rawText = UTF8_DECODER.decode(merged)
-    }
-
-    // Redact the entire <= 8 KiB body BEFORE truncating so secrets spanning the cut are masked.
-    const redacted = redactSecrets(rawText).replace(/\s+/g, ' ').trim()
-    if (!redacted) return prefix
-    return `${prefix}: ${redacted}`.slice(0, MAX_ERROR_MESSAGE_CHARS)
-  } catch {
-    return prefix
-  }
-}
-
 // ── Shared base logic for remote HTTP TTS engines ────────────────────────────
 
 abstract class HttpTtsEngineBase implements TtsEngine {
@@ -500,7 +386,7 @@ abstract class HttpTtsEngineBase implements TtsEngine {
       typeof opts.cooldownMs === 'number' && Number.isFinite(opts.cooldownMs) && opts.cooldownMs >= 0
         ? opts.cooldownMs
         : DEFAULT_COOLDOWN_MS
-    this.fetchImpl = opts.fetchImpl ?? fetch
+    this.fetchImpl = resolveFetchImpl(opts.fetchImpl)
     this.now = opts.now ?? Date.now
     if (opts.fallback) {
       this.fallbackFactory = opts.fallback
@@ -577,7 +463,7 @@ abstract class HttpTtsEngineBase implements TtsEngine {
     }
     options?.signal?.addEventListener('abort', onCallerAbort, { once: true })
 
-    const timer = setTimeout(() => {
+    const timer = scheduleTimeout(() => {
       timedOut = true
       ac.abort(new Error('TTS request timed out'))
     }, this.timeoutMs)
@@ -618,7 +504,7 @@ abstract class HttpTtsEngineBase implements TtsEngine {
       }
       throw err
     } finally {
-      clearTimeout(timer)
+      cancelTimeout(timer)
       options?.signal?.removeEventListener('abort', onCallerAbort)
       this.inflight.delete(handle)
     }
@@ -661,7 +547,7 @@ export class OpenAiCompatTtsEngine extends HttpTtsEngineBase {
 
   async prepare(): Promise<void> {
     const resolved = resolveOpenAiTtsConfig(this.rawOptions)
-    const key = await resolveApiKeyValue(this.rawOptions.apiKey)
+    const key = await resolveSecretValue(this.rawOptions.apiKey)
     this.cachedKeyPresent = key.length > 0
     if (resolved.requiresKey && !key) {
       throw new TtsProviderError(
@@ -708,7 +594,7 @@ export class OpenAiCompatTtsEngine extends HttpTtsEngineBase {
     signal: AbortSignal,
   ): Promise<TtsSynthResult> {
     const resolved = resolveOpenAiTtsConfig(this.rawOptions)
-    const trimmedKey = await resolveApiKeyValue(this.rawOptions.apiKey)
+    const trimmedKey = await resolveSecretValue(this.rawOptions.apiKey)
     this.cachedKeyPresent = trimmedKey.length > 0
     if (resolved.requiresKey && !trimmedKey) {
       throw new TtsProviderError(
@@ -765,11 +651,21 @@ export class OpenAiCompatTtsEngine extends HttpTtsEngineBase {
     )
 
     if (!res.ok) {
-      const msg = await readHttpErrorMessage(res, signal)
+      const msg = await readRedactedHttpErrorMessage(
+        res,
+        MAX_TTS_ERROR_BYTES,
+        MAX_ERROR_MESSAGE_CHARS,
+        signal,
+      )
       throw new TtsProviderError('http_error', msg, res.status)
     }
 
-    const audio = await readBoundedBytes(res, MAX_AUDIO_BYTES, signal, 'TTS audio response')
+    const audio = await readBoundedStreamBytes(
+      res,
+      MAX_AUDIO_BYTES,
+      signal,
+      () => new TtsProviderError('too_large', `TTS audio response exceeds ${MAX_AUDIO_BYTES} bytes`),
+    )
     if (audio.byteLength === 0) {
       throw new TtsProviderError('bad_audio_payload', 'TTS provider returned empty audio payload')
     }
@@ -820,7 +716,7 @@ export class MimoTtsEngine extends HttpTtsEngineBase {
 
   async prepare(): Promise<void> {
     this.resolveUrl()
-    const key = await resolveApiKeyValue(this.rawOptions.apiKey)
+    const key = await resolveSecretValue(this.rawOptions.apiKey)
     this.cachedKeyPresent = key.length > 0
     if (!key) {
       throw new TtsProviderError('not_configured', 'MiMo TTS requires a non-empty apiKey')
@@ -866,7 +762,7 @@ export class MimoTtsEngine extends HttpTtsEngineBase {
     signal: AbortSignal,
   ): Promise<TtsSynthResult> {
     const url = this.resolveUrl()
-    const trimmedKey = await resolveApiKeyValue(this.rawOptions.apiKey)
+    const trimmedKey = await resolveSecretValue(this.rawOptions.apiKey)
     this.cachedKeyPresent = trimmedKey.length > 0
     if (!trimmedKey) {
       throw new TtsProviderError('not_configured', 'MiMo TTS requires a non-empty apiKey')
@@ -928,11 +824,22 @@ export class MimoTtsEngine extends HttpTtsEngineBase {
     )
 
     if (!res.ok) {
-      const msg = await readHttpErrorMessage(res, signal)
+      const msg = await readRedactedHttpErrorMessage(
+        res,
+        MAX_TTS_ERROR_BYTES,
+        MAX_ERROR_MESSAGE_CHARS,
+        signal,
+      )
       throw new TtsProviderError('http_error', msg, res.status)
     }
 
-    const rawBytes = await readBoundedBytes(res, MAX_MIMO_JSON_BYTES, signal, 'MiMo JSON response')
+    const rawBytes = await readBoundedStreamBytes(
+      res,
+      MAX_MIMO_JSON_BYTES,
+      signal,
+      () =>
+        new TtsProviderError('too_large', `MiMo JSON response exceeds ${MAX_MIMO_JSON_BYTES} bytes`),
+    )
     const rawJson = UTF8_DECODER.decode(rawBytes)
 
     let parsed: unknown

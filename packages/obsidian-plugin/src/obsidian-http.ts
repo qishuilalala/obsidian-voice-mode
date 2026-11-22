@@ -324,10 +324,14 @@ async function executeObsidianRequestUrlFallback(
 export function createObsidianFetchWithCorsFallback(
   options: ObsidianCorsFetchOptions = {},
 ): typeof fetch {
-  const baseFetch = options.fetchImpl ?? fetch;
   const reqUrlFn = options.requestUrlImpl ?? requestUrl;
 
   return async (input: RequestInfo | URL, init?: RequestInit): Promise<Response> => {
+    const baseFetch: typeof fetch =
+      options.fetchImpl ??
+      (typeof activeWindow !== "undefined" && typeof activeWindow.fetch === "function"
+        ? activeWindow.fetch.bind(activeWindow)
+        : window.fetch.bind(window));
     const urlStr =
       typeof input === "string"
         ? input

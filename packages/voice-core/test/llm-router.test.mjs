@@ -273,11 +273,11 @@ describe('llm-router: SSE streaming parser, split connect/idle timeout, and Abor
 
     await assert.rejects(
       async () => {
-        for await (const _ of streamChat(
+        for await (const chunk of streamChat(
           { presetId: 'ollama', timeoutMs: 200, streamIdleTimeoutMs: 25, fetchImpl: stalledFetch },
           { messages: [{ role: 'user', content: 'hi' }] },
         )) {
-          // unreachable
+          void chunk
         }
       },
       (err) => err instanceof LlmRouterError && err.code === 'timeout',
@@ -311,11 +311,11 @@ describe('llm-router: SSE streaming parser, split connect/idle timeout, and Abor
       return new Response('', { status: 200 })
     }
     await assert.rejects(async () => {
-      for await (const _ of streamChat(
+      for await (const chunk of streamChat(
         { presetId: 'ollama', fetchImpl: abortFetch },
         { messages: [{ role: 'user', content: 'hi' }], signal: ac.signal },
       )) {
-        // unreachable
+        void chunk
       }
     })
   })

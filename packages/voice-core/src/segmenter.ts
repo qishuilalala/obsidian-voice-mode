@@ -39,7 +39,7 @@ function hasNonDecimalPeriodEnd(text: string): boolean {
     if (text.charCodeAt(i) !== 46) continue // '.'
     const prev = i > 0 ? text.charCodeAt(i - 1) : -1
     if (prev >= 48 && prev <= 57) continue // '0'..'9'
-    if (i + 1 === text.length || /\s/.test(text[i + 1]!)) return true
+    if (i + 1 === text.length || /\s/.test(text[i + 1])) return true
   }
   return false
 }
@@ -131,11 +131,11 @@ export function stripMarkdownTables(
   let fenceChar: '`' | '~' | null = null
 
   for (let i = 0; i < lines.length; i++) {
-    const line = lines[i]!
+    const line = lines[i]
     const trimmed = line.trimStart()
     const fenceMatch = /^(`{3,}|~{3,})/.exec(trimmed)
     if (fenceMatch) {
-      const ch = fenceMatch[1]![0] as '`' | '~'
+      const ch = fenceMatch[1][0] as '`' | '~'
       if (fenceChar === null) fenceChar = ch
       else if (fenceChar === ch) fenceChar = null
       out.push(line)
@@ -146,9 +146,9 @@ export function stripMarkdownTables(
       continue
     }
 
-    if (isTableRowLine(line) && i + 1 < lines.length && isTableDelimiterLine(lines[i + 1]!)) {
+    if (isTableRowLine(line) && i + 1 < lines.length && isTableDelimiterLine(lines[i + 1])) {
       i += 1
-      while (i + 1 < lines.length && isTableRowLine(lines[i + 1]!)) {
+      while (i + 1 < lines.length && isTableRowLine(lines[i + 1])) {
         i += 1
       }
       if (policy === 'placeholder' && placeholder.trim()) {
@@ -250,7 +250,7 @@ export function cutHead(text: string, max: number): [string, string] {
 
   let idx = -1
   for (let i = Math.min(Math.floor(max), text.length) - 1; i > 0; i--) {
-    if (/[，,、\s]/.test(text[i]!)) {
+    if (/[，,、\s]/.test(text[i])) {
       idx = i + 1
       break
     }

@@ -48,7 +48,7 @@ export function encodePcm16Wav(samples: Float32Array, sampleRate: number): Array
   view.setUint32(40, dataBytes, true)
 
   for (let i = 0; i < samples.length; i++) {
-    const raw = samples[i]!
+    const raw = samples[i]
     const clamped = Number.isFinite(raw) ? Math.max(-1, Math.min(1, raw)) : 0
     const pcm = clamped < 0 ? Math.round(clamped * 32768) : Math.round(clamped * 32767)
     view.setInt16(WAV_HEADER_BYTES + i * 2, Math.max(-32768, Math.min(32767, pcm)), true)

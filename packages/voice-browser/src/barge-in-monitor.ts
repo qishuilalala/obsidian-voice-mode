@@ -98,7 +98,7 @@ export function computeChunkRms(samples: Float32Array): number {
   if (samples.length === 0) return 0
   let sumSq = 0
   for (let i = 0; i < samples.length; i++) {
-    const s = samples[i]!
+    const s = samples[i]
     sumSq += s * s
   }
   return Math.sqrt(sumSq / samples.length)

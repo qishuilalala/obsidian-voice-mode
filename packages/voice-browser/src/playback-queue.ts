@@ -75,11 +75,11 @@ function raceWithAbort<T>(promise: Promise<T>, signal: AbortSignal): Promise<Rac
         signal.removeEventListener('abort', onAbort)
         resolve({ aborted: false, value })
       },
-      (err) => {
+      (err: unknown) => {
         if (settled) return
         settled = true
         signal.removeEventListener('abort', onAbort)
-        reject(err)
+        reject(err instanceof Error ? err : new Error(String(err)))
       },
     )
   })
@@ -165,7 +165,7 @@ export class PlaybackQueue {
    */
   pause(): boolean {
     if (this.currentState !== 'playing') return false
-    this.ensurePauseGate()
+    void this.ensurePauseGate()
     this.setState('paused')
     try {
       this.sink.pause?.()

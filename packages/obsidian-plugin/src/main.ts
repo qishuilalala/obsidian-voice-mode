@@ -1,4 +1,5 @@
 import {
+  DaemonClient,
   MODEL_BUNDLES,
   MimoTtsEngine,
   OpenAiCompatAsrTransport,
@@ -8,7 +9,10 @@ import {
   isCloudAsrEngine,
   isCloudTtsEngine,
   redactSecrets,
+  resolveDaemonBaseUrl,
   resolveTranscriptionsEndpointUrl,
+  stripEmotionTags,
+  type AsrTransport,
   type TtsEngineKind,
 } from "@voice-mode/core";
 import {
@@ -40,6 +44,7 @@ import {
 } from "./model-manager.ts";
 import { createObsidianFetchWithCorsFallback } from "./obsidian-http.ts";
 import {
+  DEFAULT_LOCAL_DAEMON_URL,
   detectRuntimeCapabilities,
   resolveEffectiveAsrEngine,
   resolveEffectiveTtsEngine,
@@ -169,6 +174,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private vitsTtsEngine: VitsWasmTtsEngine | null = null;
   private openAiTtsEngine: OpenAiCompatTtsEngine | null = null;
   private mimoTtsEngine: MimoTtsEngine | null = null;
+  private daemonTtsClient: DaemonClient | null = null;
+  private daemonTtsConfigKey = "";
+  private daemonTtsFallbackNotified = false;
+  private daemonTtsFallbackTarget: "vits-wasm" | "system" | null = null;
   private httpTtsConfigKey = "";
   private modelManager: DesktopModelManager | null = null;
   private modelManagerConfigKey = "";
@@ -178,6 +187,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private asrTransport: OpenAiCompatAsrTransport | null = null;
   private cloudSession: CloudDictationSession | null = null;
   private cloudAsrConfigKey = "";
+  private daemonAsrClient: DaemonClient | null = null;
+  private daemonSession: CloudDictationSession | null = null;
+  private daemonAsrConfigKey = "";
+  private daemonAsrFallbackNotified = false;
   private readonly polishAbortControllers = new Set<AbortController>();
   private polishFallbackNotified = false;
   private dictationTargetOverride: ((text: string) => void) | null = null;
@@ -407,15 +420,30 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.cloudSession = null;
     }
 
+    if (this.daemonSession) {
+      void this.daemonSession.abort();
+      this.daemonSession = null;
+    }
+
     if (this.asrTransport) {
       void this.asrTransport.close();
       this.asrTransport = null;
     }
     this.cloudAsrConfigKey = "";
 
+    if (this.daemonAsrClient) {
+      void this.daemonAsrClient.close();
+      this.daemonAsrClient = null;
+    }
+    this.daemonAsrConfigKey = "";
+
     this.vitsTtsEngine = null;
     this.openAiTtsEngine = null;
     this.mimoTtsEngine = null;
+    this.daemonTtsClient = null;
+    this.daemonTtsConfigKey = "";
+    this.daemonTtsFallbackNotified = false;
+    this.daemonTtsFallbackTarget = null;
     this.httpTtsConfigKey = "";
 
     if (this.speechPlayer) {
@@ -466,6 +494,11 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     this.lastBargeInDecision = null;
     this.polishFallbackNotified = false;
+    this.daemonTtsFallbackNotified = false;
+    this.daemonTtsFallbackTarget = null;
+    this.daemonAsrFallbackNotified = false;
+    this.daemonTtsClient?.resetHealthCache();
+    this.daemonAsrClient?.resetHealthCache();
     this.applySubtitleCardModifiers();
 
     if (this.speechPlayer) {
@@ -509,6 +542,20 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       } else {
         this.cloudSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
         this.cloudSession.updateLanguage(this.settings.dictationLanguage);
+      }
+    }
+
+    if (this.daemonSession) {
+      const nextDaemonKey = JSON.stringify([this.settings.daemonUrl]);
+      if (nextDaemonKey !== this.daemonAsrConfigKey && this.daemonSession.state === "idle") {
+        const prevDaemon = this.daemonAsrClient;
+        this.daemonSession = null;
+        this.daemonAsrClient = null;
+        this.daemonAsrConfigKey = "";
+        void prevDaemon?.close().catch(() => undefined);
+      } else {
+        this.daemonSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
+        this.daemonSession.updateLanguage(this.settings.dictationLanguage);
       }
     }
 
@@ -654,6 +701,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
     if (this.cloudSession && this.cloudSession.state !== "idle") {
       await this.cloudSession.abort();
+    }
+    if (this.daemonSession && this.daemonSession.state !== "idle") {
+      await this.daemonSession.abort();
     }
     if (this.workerClient) {
       await this.workerClient.unload();
@@ -850,6 +900,76 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         void prevMimo?.close().catch(() => undefined);
       }
     }
+
+    if (this.capabilities.allowLocalDaemon) {
+      const nextDaemonTtsKey = JSON.stringify([this.settings.daemonUrl]);
+      if (
+        forceRecreateHttp ||
+        nextDaemonTtsKey !== this.daemonTtsConfigKey ||
+        !this.daemonTtsClient
+      ) {
+        const prevDaemonTts = this.daemonTtsClient;
+        const textEncoder = new TextEncoder();
+        try {
+          this.daemonTtsClient = new DaemonClient({
+            baseUrl: this.settings.daemonUrl || DEFAULT_LOCAL_DAEMON_URL,
+            token: () =>
+              this.settings.daemonTokenSecretId
+                ? this.secretStore.getSecret(this.settings.daemonTokenSecretId)
+                : null,
+            voice: this.settings.ttsVoice || undefined,
+            rate: this.settings.speechRate,
+            fetchImpl: (input, init) => this.callNativeBrowserFetch(input, init),
+            fallbackTts: {
+              kind: "system",
+              mime: "text/plain;charset=utf-8",
+              synthesize: async (text, options) => {
+                const status = await this.getModelStatus().catch(() => null);
+                if (status?.vitsReady && this.vitsTtsEngine) {
+                  this.daemonTtsFallbackTarget = "vits-wasm";
+                  if (!this.daemonTtsFallbackNotified) {
+                    this.daemonTtsFallbackNotified = true;
+                    new Notice(
+                      "Local voice daemon is offline or unauthorized; falling back to VITS WASM.",
+                    );
+                  }
+                  return this.vitsTtsEngine.synthesize(text, options);
+                }
+                this.daemonTtsFallbackTarget = "system";
+                void this.bargeInMonitor?.stop();
+                if (!this.daemonTtsFallbackNotified) {
+                  this.daemonTtsFallbackNotified = true;
+                  new Notice(
+                    "Local voice daemon is offline or unauthorized; falling back to system speech synthesis.",
+                  );
+                }
+                return {
+                  audio: textEncoder.encode(stripEmotionTags(text).trim()),
+                  mime: "text/plain;charset=utf-8",
+                };
+              },
+              close: async () => {},
+            },
+          });
+          this.speechPlayer.registerEngine(this.daemonTtsClient.tts);
+          this.daemonTtsConfigKey = nextDaemonTtsKey;
+        } catch {
+          this.daemonTtsClient = null;
+          this.daemonTtsConfigKey = "";
+          this.speechPlayer.unregisterEngine("kokoro-daemon");
+        }
+        if (!this.speechPlayer.isActive) {
+          void prevDaemonTts?.close().catch(() => undefined);
+        }
+      } else {
+        this.daemonTtsClient.updateVoice(this.settings.ttsVoice, this.settings.speechRate);
+      }
+    } else if (this.daemonTtsClient) {
+      void this.daemonTtsClient.close();
+      this.daemonTtsClient = null;
+      this.daemonTtsConfigKey = "";
+      this.speechPlayer.unregisterEngine("kokoro-daemon");
+    }
   }
 
   private ensureBargeInWorkerClient(): SherpaWorkerClient | null {
@@ -953,7 +1073,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     const effectiveTts = this.getEffectiveTtsEngine();
     const usesSystemTts =
-      effectiveTts === "system" || !this.speechPlayer?.hasRegisteredEngine(effectiveTts);
+      effectiveTts === "system" ||
+      !this.speechPlayer?.hasRegisteredEngine(effectiveTts) ||
+      (effectiveTts === "kokoro-daemon" && this.daemonTtsFallbackTarget === "system");
 
     if (
       usesSystemTts ||
@@ -1101,16 +1223,22 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
   }
 
-  private ensureCloudDictationSession(): CloudDictationSession {
-    const nextKey = JSON.stringify([
-      this.settings.asrEndpointUrl,
-      this.settings.asrModel,
-    ]);
+  private callNativeBrowserFetch(
+    input: RequestInfo | URL,
+    init?: RequestInit,
+  ): Promise<Response> {
+    if (typeof activeWindow !== "undefined" && typeof activeWindow.fetch === "function") {
+      return activeWindow.fetch(input, init);
+    }
+    return window.fetch(input, init);
+  }
 
+  private ensureCloudAsrTransport(): OpenAiCompatAsrTransport {
+    const nextKey = JSON.stringify([this.settings.asrEndpointUrl, this.settings.asrModel]);
     if (
-      !this.cloudSession ||
       !this.asrTransport ||
-      (this.cloudSession.state === "idle" && nextKey !== this.cloudAsrConfigKey)
+      ((!this.cloudSession || this.cloudSession.state === "idle") &&
+        nextKey !== this.cloudAsrConfigKey)
     ) {
       const prevTransport = this.asrTransport;
       this.asrTransport = new OpenAiCompatAsrTransport({
@@ -1121,72 +1249,79 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           this.settings.asrApiKeySecretId
             ? this.secretStore.getSecret(this.settings.asrApiKeySecretId)
             : null,
-        fetchImpl: this.corsFetch,
-      });
-
-      this.cloudSession = new CloudDictationSession({
-        transport: this.asrTransport,
-        endpointPolicy: {
-          silenceMs: this.settings.endpointSilenceMs,
-        },
-        language: this.settings.dictationLanguage,
-        onStateChange: (state) => {
-          this.handleCloudStateChange(state);
-        },
-        onSpeechActivity: (isSpeech) => {
-          if (this.cloudSession?.state === "listening") {
-            this.showSubtitleOverlay(
-              "Cloud dictation",
-              isSpeech ? "Listening (speech detected)..." : "Listening...",
-            );
-          }
-        },
-        onFinalTranscript: (rawText) => {
-          const target = this.dictationTargetOverride ?? undefined;
-          this.notifyDictationTargetSettled();
-          void this.processAndCommitDictation(rawText, target);
-        },
-        onError: (err) => {
-          this.listening = false;
-          this.notifyDictationTargetSettled();
-          this.setStatus("error");
-          this.hideSubtitleOverlay();
-          if (isMicrophonePermissionError(err)) {
-            new Notice(
-              "Microphone permission was denied. Grant microphone access to Obsidian in your OS privacy settings and try again.",
-              7000,
-            );
-            return;
-          }
-          const message = redactSecrets(err.message || String(err));
-          new Notice(`Cloud dictation error: ${message}`);
-        },
+        fetchImpl: (input, init) => this.corsFetch(input, init),
       });
       this.cloudAsrConfigKey = nextKey;
-
+      this.cloudSession = null;
       if (prevTransport) {
         void prevTransport.close().catch(() => undefined);
       }
     }
-
-    this.cloudSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
-    this.cloudSession.updateLanguage(this.settings.dictationLanguage);
-    return this.cloudSession;
+    return this.asrTransport;
   }
 
-  private handleCloudStateChange(state: DictationSessionState): void {
+  private createTransportDictationSession(
+    transport: AsrTransport,
+    roleLabel: "Cloud dictation" | "Daemon dictation",
+    getSession: () => CloudDictationSession | null,
+  ): CloudDictationSession {
+    return new CloudDictationSession({
+      transport,
+      endpointPolicy: {
+        silenceMs: this.settings.endpointSilenceMs,
+      },
+      language: this.settings.dictationLanguage,
+      onStateChange: (state) => {
+        this.handleTransportSessionStateChange(state, roleLabel, getSession);
+      },
+      onSpeechActivity: (isSpeech) => {
+        if (getSession()?.state === "listening") {
+          this.showSubtitleOverlay(
+            roleLabel,
+            isSpeech ? "Listening (speech detected)..." : "Listening...",
+          );
+        }
+      },
+      onFinalTranscript: (rawText) => {
+        const target = this.dictationTargetOverride ?? undefined;
+        this.notifyDictationTargetSettled();
+        void this.processAndCommitDictation(rawText, target);
+      },
+      onError: (err) => {
+        this.listening = false;
+        this.notifyDictationTargetSettled();
+        this.setStatus("error");
+        this.hideSubtitleOverlay();
+        if (isMicrophonePermissionError(err)) {
+          new Notice(
+            "Microphone permission was denied. Grant microphone access to Obsidian in your OS privacy settings and try again.",
+            7000,
+          );
+          return;
+        }
+        const message = redactSecrets(err.message || String(err));
+        new Notice(`${roleLabel} error: ${message}`);
+      },
+    });
+  }
+
+  private handleTransportSessionStateChange(
+    state: DictationSessionState,
+    roleLabel: "Cloud dictation" | "Daemon dictation",
+    getSession: () => CloudDictationSession | null,
+  ): void {
     switch (state) {
       case "starting":
         this.listening = true;
         this.setStatus("busy", "Starting mic");
-        this.showSubtitleOverlay("Cloud dictation", "Opening microphone...");
+        this.showSubtitleOverlay(roleLabel, "Opening microphone...");
         break;
       case "listening":
         this.listening = true;
         this.setStatus("listening");
         this.showSubtitleOverlay(
-          "Cloud dictation",
-          this.cloudSession?.mode === "push-to-talk"
+          roleLabel,
+          getSession()?.mode === "push-to-talk"
             ? "Push to talk active — speak now..."
             : "Listening...",
         );
@@ -1195,7 +1330,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       case "stopping":
         this.listening = false;
         this.setStatus("busy", "Transcribing");
-        this.showSubtitleOverlay("Cloud dictation", "Transcribing...");
+        this.showSubtitleOverlay(roleLabel, "Transcribing...");
         break;
       case "idle":
         this.listening = false;
@@ -1211,11 +1346,120 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
   }
 
+  private ensureCloudDictationSession(): CloudDictationSession {
+    const transport = this.ensureCloudAsrTransport();
+    if (!this.cloudSession) {
+      this.cloudSession = this.createTransportDictationSession(
+        transport,
+        "Cloud dictation",
+        () => this.cloudSession,
+      );
+    }
+    this.cloudSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
+    this.cloudSession.updateLanguage(this.settings.dictationLanguage);
+    return this.cloudSession;
+  }
+
+  private createDaemonMidSessionFallbackAsr(): AsrTransport {
+    return {
+      kind: "openai-compat",
+      transcribe: async (pcm16k, options) => {
+        const modelStatus = await this.getModelStatus().catch(() => null);
+        if (modelStatus?.ready) {
+          const worker = this.ensureSherpaWorkerClient();
+          if (worker) {
+            try {
+              const res = await worker.transcribe(pcm16k, {
+                sampleRate: options?.sampleRate,
+                language: resolveSenseVoiceLanguage(
+                  options?.language ?? this.settings.dictationLanguage,
+                ),
+              });
+              if (!this.daemonAsrFallbackNotified) {
+                this.daemonAsrFallbackNotified = true;
+                new Notice(
+                  "Local voice daemon is offline or unauthorized; falling back to SenseVoice WASM offline dictation.",
+                );
+              }
+              return { text: res.text.trim(), isFinal: true };
+            } catch {
+              // Fall through to OpenAI-compatible ASR if local Worker cannot run in current host.
+            }
+          }
+        }
+        if (this.isOpenAiCompatAsrReady()) {
+          if (!this.daemonAsrFallbackNotified) {
+            this.daemonAsrFallbackNotified = true;
+            new Notice(
+              "Local voice daemon is offline or unauthorized; falling back to OpenAI-compatible dictation.",
+            );
+          }
+          return this.ensureCloudAsrTransport().transcribe(pcm16k, options);
+        }
+        throw new Error(
+          "Local voice daemon disconnected mid-session and no fallback ASR engine is configured.",
+        );
+      },
+      close: async () => {},
+    };
+  }
+
+  private ensureDaemonAsrClient(): DaemonClient {
+    const rawBase = this.settings.daemonUrl || DEFAULT_LOCAL_DAEMON_URL;
+    let safeBase = DEFAULT_LOCAL_DAEMON_URL;
+    try {
+      safeBase = resolveDaemonBaseUrl(rawBase);
+    } catch {
+      safeBase = DEFAULT_LOCAL_DAEMON_URL;
+    }
+    const nextKey = JSON.stringify([safeBase]);
+    if (
+      !this.daemonAsrClient ||
+      ((!this.daemonSession || this.daemonSession.state === "idle") &&
+        nextKey !== this.daemonAsrConfigKey)
+    ) {
+      const prev = this.daemonAsrClient;
+      this.daemonAsrClient = new DaemonClient({
+        baseUrl: safeBase,
+        token: () =>
+          this.settings.daemonTokenSecretId
+            ? this.secretStore.getSecret(this.settings.daemonTokenSecretId)
+            : null,
+        language: this.settings.dictationLanguage,
+        fetchImpl: (input, init) => this.callNativeBrowserFetch(input, init),
+        fallbackAsr: this.createDaemonMidSessionFallbackAsr(),
+      });
+      this.daemonAsrConfigKey = nextKey;
+      this.daemonSession = null;
+      if (prev) {
+        void prev.close().catch(() => undefined);
+      }
+    }
+    return this.daemonAsrClient;
+  }
+
+  ensureDaemonDictationSession(): CloudDictationSession {
+    const client = this.ensureDaemonAsrClient();
+    if (!this.daemonSession) {
+      this.daemonSession = this.createTransportDictationSession(
+        client.asr,
+        "Daemon dictation",
+        () => this.daemonSession,
+      );
+    }
+    this.daemonSession.updateEndpointPolicy({ silenceMs: this.settings.endpointSilenceMs });
+    this.daemonSession.updateLanguage(this.settings.dictationLanguage);
+    return this.daemonSession;
+  }
+
   private isMicSessionActive(): boolean {
     if (this.startingDictation || this.listening || this.activeRecognition) {
       return true;
     }
     if (this.offlineSession && this.offlineSession.state !== "idle") {
+      return true;
+    }
+    if (this.daemonSession && this.daemonSession.state !== "idle") {
       return true;
     }
     return Boolean(this.cloudSession && this.cloudSession.state !== "idle");
@@ -1260,6 +1504,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       }
       if (this.cloudSession && this.cloudSession.state !== "idle") {
         void this.cloudSession.stop({ flush: true });
+      }
+      if (this.daemonSession && this.daemonSession.state !== "idle") {
+        void this.daemonSession.stop({ flush: true });
       }
     };
 
@@ -1435,6 +1682,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   async toggleDictation(modeOverride?: DictationMode, fromPointerHold = false): Promise<void> {
     if (this.startingDictation) {
       const wasCloudStarting = Boolean(this.cloudSession && this.cloudSession.state !== "idle");
+      const wasDaemonStarting = Boolean(this.daemonSession && this.daemonSession.state !== "idle");
       this.dictationStartEpoch += 1;
       this.startingDictation = false;
       this.pointerHoldActive = false;
@@ -1445,12 +1693,19 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       if (this.cloudSession && this.cloudSession.state !== "idle") {
         await this.cloudSession.stop({ flush: false });
       }
+      if (this.daemonSession && this.daemonSession.state !== "idle") {
+        await this.daemonSession.stop({ flush: false });
+      }
       if (!this.speechPlayer?.isActive && this.currentStatus !== "error") {
         this.setStatus("idle");
         this.hideSubtitleOverlay();
       }
       new Notice(
-        wasCloudStarting ? "Cloud voice dictation stopped." : "Offline voice dictation stopped.",
+        wasDaemonStarting
+          ? "Daemon voice dictation stopped."
+          : wasCloudStarting
+            ? "Cloud voice dictation stopped."
+            : "Offline voice dictation stopped.",
       );
       return;
     }
@@ -1466,6 +1721,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       this.pointerHoldActive = false;
       await this.cloudSession.stop({ flush: true });
       new Notice("Cloud voice dictation stopped.");
+      return;
+    }
+
+    if (this.daemonSession && this.daemonSession.state !== "idle") {
+      this.pointerHoldActive = false;
+      await this.daemonSession.stop({ flush: true });
+      new Notice("Daemon voice dictation stopped.");
       return;
     }
 
@@ -1500,6 +1762,11 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
+    if (effectiveAsr === "daemon") {
+      await this.startDaemonDictation(mode, fromPointerHold);
+      return;
+    }
+
     if (effectiveAsr !== "system") {
       this.notifyDictationTargetSettled();
       new Notice(
@@ -1509,6 +1776,115 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
 
     await this.startBrowserSpeechRecognitionFallback(mode);
+  }
+
+  private isOpenAiCompatAsrReady(): boolean {
+    try {
+      const endpoint = resolveTranscriptionsEndpointUrl(this.settings.asrEndpointUrl || undefined);
+      if (endpoint.isLoopbackHttp) {
+        return true;
+      }
+      const secretId = this.settings.asrApiKeySecretId;
+      const apiKey = secretId ? this.secretStore.getSecret(secretId) : null;
+      return Boolean(apiKey && apiKey.trim());
+    } catch {
+      return false;
+    }
+  }
+
+  private async startDaemonDictation(
+    mode: DictationMode,
+    fromPointerHold: boolean,
+  ): Promise<void> {
+    try {
+      resolveDaemonBaseUrl(this.settings.daemonUrl || DEFAULT_LOCAL_DAEMON_URL);
+    } catch (err) {
+      this.pointerHoldActive = false;
+      this.notifyDictationTargetSettled();
+      const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+      new Notice(`Invalid local daemon URL: ${msg}`);
+      return;
+    }
+
+    const startEpoch = ++this.dictationStartEpoch;
+    this.startingDictation = true;
+
+    try {
+      const client = this.ensureDaemonAsrClient();
+      const health = await client.probeHealth();
+      if (startEpoch !== this.dictationStartEpoch || (fromPointerHold && !this.pointerHoldActive)) {
+        return;
+      }
+
+      if (!health.ok) {
+        const modelStatus = await this.getModelStatus().catch(() => null);
+        if (
+          startEpoch !== this.dictationStartEpoch ||
+          (fromPointerHold && !this.pointerHoldActive)
+        ) {
+          return;
+        }
+        if (modelStatus?.ready) {
+          this.startingDictation = false;
+          new Notice(
+            "Local voice daemon is offline or unauthorized; falling back to SenseVoice WASM offline dictation.",
+          );
+          await this.startOfflineSenseVoiceDictation(mode, fromPointerHold);
+          return;
+        }
+        if (this.isOpenAiCompatAsrReady()) {
+          this.startingDictation = false;
+          new Notice(
+            "Local voice daemon is offline or unauthorized; falling back to OpenAI-compatible dictation.",
+          );
+          await this.startCloudOpenAiDictation(mode, fromPointerHold);
+          return;
+        }
+        this.pointerHoldActive = false;
+        this.notifyDictationTargetSettled();
+        new Notice(
+          "Local voice daemon is offline or unauthorized. Start voice-daemon, download SenseVoice WASM models, or configure an OpenAI-compatible transcription API key in settings.",
+        );
+        return;
+      }
+
+      const session = this.ensureDaemonDictationSession();
+      this.stopReadAloudSilently();
+      if (this.workerClient?.isLoaded("tts-vits")) {
+        void this.workerClient.unload();
+      }
+      if (this.bargeInMonitor) {
+        await this.bargeInMonitor.stop();
+      }
+      if (startEpoch !== this.dictationStartEpoch || (fromPointerHold && !this.pointerHoldActive)) {
+        return;
+      }
+
+      try {
+        await session.start(mode);
+      } catch {
+        this.pointerHoldActive = false;
+        this.notifyDictationTargetSettled();
+        return;
+      }
+
+      if (startEpoch !== this.dictationStartEpoch || (fromPointerHold && !this.pointerHoldActive)) {
+        await session.stop({ flush: true });
+        return;
+      }
+
+      new Notice(
+        mode === "single"
+          ? "Daemon dictation started (single utterance)."
+          : mode === "push-to-talk"
+            ? "Push-to-talk started — invoke again or release to transcribe."
+            : "Daemon dictation started.",
+      );
+    } finally {
+      if (this.dictationStartEpoch === startEpoch) {
+        this.startingDictation = false;
+      }
+    }
   }
 
   private async startCloudOpenAiDictation(
@@ -1932,6 +2308,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         }
         if (!qaReadAloudStarted) {
           qaReadAloudStarted = true;
+          this.daemonTtsFallbackNotified = false;
+          this.daemonTtsFallbackTarget = null;
           this.syncSpeechPlayerEngines();
           this.overflowNotified = false;
           this.speechPlayer.cancel();
@@ -1978,6 +2356,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
     if (this.cloudSession && this.cloudSession.state !== "idle") {
       void this.cloudSession.abort();
+    }
+    if (this.daemonSession && this.daemonSession.state !== "idle") {
+      void this.daemonSession.abort();
     }
     if (this.listening || this.activeRecognition) {
       this.stopBrowserRecognition();
@@ -2081,6 +2462,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
     this.abortActiveDictationSilently();
 
+    this.daemonTtsFallbackNotified = false;
+    this.daemonTtsFallbackTarget = null;
     this.syncSpeechPlayerEngines();
     this.overflowNotified = false;
     this.speechPlayer?.cancel();
@@ -2131,7 +2514,9 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     const effectiveAsr = this.getEffectiveAsrEngine();
     const effectiveTts = this.getEffectiveTtsEngine();
     const usesSystemTts =
-      effectiveTts === "system" || !this.speechPlayer?.hasRegisteredEngine(effectiveTts);
+      effectiveTts === "system" ||
+      !this.speechPlayer?.hasRegisteredEngine(effectiveTts) ||
+      (effectiveTts === "kokoro-daemon" && this.daemonTtsFallbackTarget === "system");
     const bargeIn =
       this.lastBargeInDecision ??
       resolveBargeInPolicy({

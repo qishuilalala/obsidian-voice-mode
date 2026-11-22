@@ -11,8 +11,8 @@
 
 | Workspace 包 | 职责 | 严格禁止导入（ESLint + `check-release-gate.mjs` 双守卫） |
 | --- | --- | --- |
-| `packages/voice-core`（`@voice-mode/core`） | 零依赖纯 TS 内核：Markdown/表格分句（`segmenter`）、纠错词表（`asr-replacements`）、情感 DSL（`emotion`）、固定 SHA256 模型清单与 USTAR 解包器（`model-manifest`）、`OpenAiCompatAsrTransport`（`asr-engines`）、`OpenAiCompatTtsEngine` / `MimoTtsEngine` + `sniffAudioMime`（`tts-engines`）、密钥脱敏（`redact`）与 `< 400` 行双协议 BYOK `llm-router` | 零第三方运行时依赖；禁 `obsidian`、`electron`、`@deepseek-ai/*`、所有 `node:*`/Node 内置模块及 DOM 全局变量 |
-| `packages/voice-browser`（`@voice-mode/browser`） | 浏览器/Electron 音频与 Worker 运行时：16 kHz `AudioWorklet`、重采样、AEC3 探针与 `AecBargeInMonitor`、支持暂停/跳句的 `PlaybackQueue`、`MEMFS` Sherpa 客户端、`VitsWasmTtsEngine`、离线听写（`dictation-session`）与零 WASM/Worker 的 `CloudDictationSession` | 禁 `obsidian`、`electron`、`@deepseek-ai/*`、Node 内置模块 |
+| `packages/voice-core`（`@voice-mode/core`） | 零依赖纯 TS 内核：Markdown/表格分句（`segmenter`）、纠错词表（`asr-replacements`）、情感 DSL 与 Prompt 编译器（`emotion`）、固定 SHA256 模型清单与 USTAR 解包器（`model-manifest`）、`OpenAiCompatAsrTransport`（`asr-engines`）、`OpenAiCompatTtsEngine` / `MimoTtsEngine` + `sniffAudioMime`（`tts-engines`）、`< 1s` 回退 `DaemonClient`（`daemon-client`）、密钥脱敏（`redact`）与 `< 400` 行双协议 BYOK `llm-router` | 零第三方运行时依赖；禁 `obsidian`、`electron`、`@deepseek-ai/*`、所有 `node:*`/Node 内置模块及 DOM 全局变量 |
+| `packages/voice-browser`（`@voice-mode/browser`） | 浏览器/Electron 音频与焦点注入层：16 kHz `AudioWorklet`、重采样、AEC3 探针与 `AecBargeInMonitor`、支持暂停/跳句的 `PlaybackQueue`、`MEMFS` Sherpa 客户端、`VitsWasmTtsEngine`、离线听写（`dictation-session`）、零 WASM `CloudDictationSession` 与通用焦点注入器（`focus-injector`） | 禁 `obsidian`、`electron`、`@deepseek-ai/*`、Node 内置模块 |
 | `packages/obsidian-plugin`（`@voice-mode/obsidian-plugin`） | 极薄 Obsidian 适配层（含 `desktop-fs`、`model-manager`、`obsidian-http` CORS 兜底、`speech-player`、`voice-qa-modal`、`editor-bridge`），经 `esbuild.config.mjs` 打包为根目录 `main.js`（不入 Git） | 禁静态导入 `electron` / `node:*`；禁 `innerHTML` / `outerHTML` / `document.write` / `eval` / `new Function`；须全绿通过 `eslint-plugin-obsidianmd` |
 
 ## 核心架构不变量
@@ -34,21 +34,24 @@
 
 ```bash
 pnpm install --frozen-lockfile  # 安装锁定依赖（Node >= 22.18.0，CI 固定 Node 22 + pnpm@12.21.0）
-pnpm run typecheck              # 三包严格 TypeScript 类型检查
+pnpm run build:packages         # 编译 @voice-mode/core 与 @voice-mode/browser 至 dist/*.js + .d.ts
+pnpm run typecheck              # 根级与三包严格 TypeScript 类型检查
 pnpm run lint                   # ESLint（含 eslint-plugin-obsidianmd 与跨包边界规则）
-pnpm run test                   # 三包 Node 内置测试套件（147 项单测，原生 type-stripping 直导 .ts）
+pnpm run test                   # 三包 Node 内置测试套件
 pnpm run build                  # esbuild 生产打包生成根目录 main.js
 pnpm run check:release          # 清单/版本/体积/边界/密钥与卫生全检
-pnpm run check:all              # 以上五项完整顺序执行（PR 与发版前必跑）
+pnpm run check:all              # 以上完整门禁顺序执行（PR 与发版前必跑）
 ```
 
 ## 关键入口索引
 
 | 文档 | 用途 |
 | --- | --- |
+| [GLOSSARY.md](GLOSSARY.md) | **领域词典**：命名类型、配置、UI 文案或测试用例前必查（统一 *Utterance*、*Barge-In*、*Secret ID*、*Voice Daemon* 等核心概念，纯领域定义无实现细节） |
+| [CODING_STANDARDS.md](CODING_STANDARDS.md) | **编码与审查准则**：设计模块接缝、处理错误脱敏或执行 `/code-review` 双轴评审时必读的主观判断规范 |
 | [docs/rules/STATE.md](docs/rules/STATE.md) | 当前阶段恢复点：精确区分已落地与未实现能力 |
 | [docs/plan/master-plan.md](docs/plan/master-plan.md) | 实测基准、三波开源矩阵（Obsidian → SillyTavern → Daemon/扩展）与 M0–M6 规划 |
-| [docs/adr/README.md](docs/adr/README.md) | ADR-0001 ~ 0004 架构决策记录 |
+| [docs/adr/README.md](docs/adr/README.md) | ADR-0001 ~ 0005 架构决策索引；跨仓拆包、`dist/` 编译产物与 `DaemonClient` 四端复用见 [ADR-0005](docs/adr/0005-multi-repo-package-sharing-and-daemon-seam.md) |
 | [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md) | M0–M3 真机实测报告、发版 4 项声学必过门禁与移动端降级表 |
 | [docs/distribution/launch-playbook.md](docs/distribution/launch-playbook.md) | `obsidian-releases` 提审排雷、15 秒 Demo 分镜与首发增长排期 |
 | [SECURITY.md](SECURITY.md) | 隐私数据流、`SecretStorage` 边界、模型 SHA256 与 GPL 隔离声明 |
