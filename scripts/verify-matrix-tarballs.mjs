@@ -4,9 +4,17 @@ import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import process from "node:process";
+import { parseArgs } from "node:util";
 
 const root = path.dirname(import.meta.dirname);
-const matrixRoot = path.resolve(process.argv[2] ?? path.dirname(root));
+const { values, positionals } = parseArgs({
+  options: { "require-all": { type: "boolean", default: false } },
+  allowPositionals: true,
+});
+if (positionals.length > 1) {
+  throw new Error("Usage: pnpm run verify:matrix [--require-all] [checkout-parent]");
+}
+const matrixRoot = path.resolve(positionals[0] ?? path.dirname(root));
 const consumers = [
   { repo: "sillytavern-voice-mode", vendor: "vendor", packages: ["core", "browser"] },
   { repo: "voice-mode-daemon", vendor: "vendor", packages: ["core", "browser"] },
@@ -46,6 +54,7 @@ try {
   for (const { repo, vendor, packages } of consumers) {
     const checkout = path.join(matrixRoot, repo);
     if (!fs.existsSync(checkout)) {
+      if (values["require-all"]) throw new Error(`Required checkout absent: ${checkout}`);
       console.log(`[SKIP] ${repo} checkout absent`);
       continue;
     }
