@@ -28,8 +28,6 @@ export interface ExtractReadableOptions {
   tablePlaceholder?: string;
 }
 
-const FRONTMATTER_RE = /^---\r?\n[\s\S]*?\r?\n---(?:\r?\n|$)/;
-
 /**
  * Returns true when the currently focused element belongs to an Obsidian
  * CodeMirror 6 editor inside the given MarkdownView container.
@@ -66,14 +64,6 @@ export function insertDictatedText(
 }
 
 /**
- * Strip leading YAML frontmatter (`---\n...\n---`) so neither full-note nor select-all
- * read-aloud pronounces raw note metadata.
- */
-function stripLeadingFrontmatter(raw: string): string {
-  return raw.replace(FRONTMATTER_RE, "");
-}
-
-/**
  * Extract Markdown-cleaned spoken sentences from the active Obsidian editor.
  * Prefers the current text selection; otherwise reads the full note.
  * Strips leading YAML frontmatter in both cases.
@@ -83,8 +73,7 @@ export function extractReadableText(
   options: ExtractReadableOptions = {},
 ): string[] {
   const selected = editor.getSelection();
-  const baseSource = selected.trim().length > 0 ? selected : editor.getValue();
-  const rawSource = stripLeadingFrontmatter(baseSource);
+  const rawSource = selected.trim().length > 0 ? selected : editor.getValue();
   if (!rawSource.trim()) {
     return [];
   }

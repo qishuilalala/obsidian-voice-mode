@@ -2,6 +2,7 @@
   "name": "@voice-mode/browser",
   "version": "0.1.0",
   "type": "module",
+  "sideEffects": false,
   "description": "Browser and Electron audio capture, 16kHz AudioWorklet resampler, AEC3 runtime probe, playback queue, and focus text injector.",
   "license": "MIT",
   "files": [
@@ -13,7 +14,12 @@
     ".": {
       "types": "./dist/index.d.ts",
       "default": "./dist/index.js"
-    }
+    },
+    "./*": {
+      "types": "./dist/*.d.ts",
+      "default": "./dist/*.js"
+    },
+    "./package.json": "./package.json"
   },
   "dependencies": {
     "@voice-mode/core": "workspace:*"

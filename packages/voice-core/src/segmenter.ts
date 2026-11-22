@@ -30,8 +30,77 @@ const INLINE_SENTENCE_END_RE = /[。！？!?；;…]/
 const TABLE_DELIM_CELL_RE = /^:?-+:?$/
 const TABLE_DELIM_CHARS_RE = /^[\s|:-]*$/
 const UNESCAPED_PIPE_RE = /(?:^|[^\\])\|/
-const FRONTMATTER_BLOCK_RE = /^(?:\uFEFF)?---[ \t]*\r?\n[\s\S]*?\r?\n(?:---|\.\.\.)[ \t]*(?:\r?\n|$)/
 const FENCE_LANG_PREFIX_RE = /^[ \t]*[A-Za-z0-9_+.#-]{1,32}[ \t]*\r?\n/
+const MAX_FRONTMATTER_KEY_CHARS = 120
+const YAML_CLOSE = /^(?:---|\.\.\.)[ \t]*$/
+const YAML_HEADER = /^[ \t]*(?:-[ \t]+)?(?:[\p{L}\p{N}_.-]+|"(?:[^"\\]|\\.)*"|'(?:[^']|'')*')[ \t]*:/u
+const YAML_KEY_PREFIX = /^[ \t]*(?:-[ \t]+)?(?:[\p{L}\p{N}_.-]+[ \t]*|"(?:[^"\\]|\\.)*(?:\\|"[ \t]*)?|'(?:[^']|'')*(?:'[ \t]*)?)$/u
+
+/** A possible key stays ambiguous only until punctuation, a second word, or the probe limit. */
+function classifyFirstLine(line: string, complete: boolean): 'metadata' | 'pending' | 'body' {
+  if (/^[ \t]*#/.test(line)) return 'metadata'
+  if (/^[ \t]*$/.test(line)) return 'pending'
+  const header = YAML_HEADER.exec(line.slice(0, MAX_FRONTMATTER_KEY_CHARS + 1))
+  if (header) {
+    const next = line[header[0].length]
+    if (next === undefined) return complete ? 'metadata' : 'pending'
+    return next === ' ' || next === '\t' ? 'metadata' : 'body'
+  }
+  if (!complete && YAML_CLOSE.test(line)) return 'pending'
+  if (!complete && line.length <= MAX_FRONTMATTER_KEY_CHARS) {
+    if (isHighSurrogate(line.charCodeAt(line.length - 1)) || YAML_KEY_PREFIX.test(line)) return 'pending'
+  }
+  return 'body'
+}
+
+/** Inspect the document start exactly once, preserving unclosed metadata as readable input. */
+class LeadingFrontmatter {
+  private phase: 'opening' | 'first' | 'metadata' | 'body' = 'opening'
+  private partial = ''
+  private held = ''
+
+  private release(body: string): string {
+    this.phase = 'body'
+    this.partial = ''
+    this.held = ''
+    return body
+  }
+
+  read(chunk: string, final = false): string {
+    if (this.phase === 'body') return chunk
+    let start = 0
+    for (;;) {
+      const nl = chunk.indexOf('\n', start)
+      const complete = nl !== -1 || final
+      this.partial += nl === -1 ? chunk.slice(start) : chunk.slice(start, nl)
+      if (!complete && this.phase === 'metadata') return ''
+      // Keep the raw CR so a CRLF split across calls can be reconstructed on fallback.
+      const line = this.partial.endsWith('\r') ? this.partial.slice(0, -1) : this.partial
+      const rest = nl === -1 ? '' : chunk.slice(nl + 1)
+      if (this.phase === 'opening') {
+        if (!complete && /^\uFEFF?(?:-{0,2}|---[ \t]*)$/.test(line)) return ''
+        if (nl === -1 || !/^\uFEFF?---[ \t]*$/.test(line)) {
+          return this.release(this.partial + (nl === -1 ? '' : '\n' + rest))
+        }
+        this.phase = 'first'
+      } else {
+        if (complete && YAML_CLOSE.test(line)) return this.release(rest)
+        if (this.phase === 'first') {
+          const kind = classifyFirstLine(line, complete)
+          if (kind === 'body') {
+            return this.release(this.held + this.partial + (nl === -1 ? '' : '\n' + rest))
+          }
+          if (kind === 'metadata') this.phase = 'metadata'
+        }
+        if (nl === -1) return final ? this.release(this.held + this.partial) : ''
+        this.held += this.partial + '\n'
+      }
+      this.partial = ''
+      start = nl + 1
+      if (start === chunk.length && !final) return ''
+    }
+  }
+}
 
 /** True when `text` contains a sentence-ending `.` not preceded by an ASCII digit (lookbehind-free). */
 function hasNonDecimalPeriodEnd(text: string): boolean {
@@ -172,8 +241,11 @@ export function stripMarkdownTables(
 
 /** Strip Markdown, YAML frontmatter, code fences, block math, callout markers, and URLs while keeping emotion tags intact. */
 export function plainText(text: string, options: StripMarkdownTablesOptions = {}): string {
-  const withoutFrontmatter = String(text).replace(FRONTMATTER_BLOCK_RE, '')
-  const withoutFences = withoutFrontmatter
+  return cleanMarkdownBody(new LeadingFrontmatter().read(String(text), true), options)
+}
+
+function cleanMarkdownBody(text: string, options: StripMarkdownTablesOptions): string {
+  const withoutFences = text
     .replace(/`{3,}[\s\S]*?`{3,}/g, ' ')
     .replace(/~{3,}[\s\S]*?~{3,}/g, ' ')
   const withoutMath = withoutFences.replace(/\$\$[\s\S]*?\$\$/g, ' ')
@@ -276,9 +348,7 @@ export class SentenceSegmenter {
   private readonly tablePlaceholder: string
 
   // YAML frontmatter state (document start only)
-  private docStartChecked = false
-  private inFrontmatter = false
-  private frontmatterBuf = ''
+  private frontmatter = new LeadingFrontmatter()
 
   // Cross-delta code fence state (` ``` ` and `~~~`)
   private fenceChar: '`' | '~' | null = null
@@ -310,45 +380,6 @@ export class SentenceSegmenter {
       return `${this.tablePlaceholder}\n`
     }
     return '\n'
-  }
-
-  /** Strip leading YAML frontmatter (`--- ... ---`) across deltas; falls back cleanly on flush if unclosed. */
-  private dropFrontmatter(chunk: string): string {
-    if (this.docStartChecked && !this.inFrontmatter) return chunk
-
-    // Concatenate raw chunk BEFORE normalizing `\r\n` so CRLF split across deltas (`---\r` + `\n`) stays intact.
-    this.frontmatterBuf = (this.frontmatterBuf + chunk).replace(/\r\n/g, '\n')
-
-    if (!this.docStartChecked) {
-      const probe = this.frontmatterBuf.replace(/^\uFEFF/, '')
-      if (probe.length === 0) return ''
-      const nl = probe.indexOf('\n')
-      if (nl === -1) {
-        if (/^-{1,3}[ \t]*\r?$/.test(probe)) return ''
-        this.docStartChecked = true
-        const released = this.frontmatterBuf
-        this.frontmatterBuf = ''
-        return released
-      }
-      const firstLine = probe.slice(0, nl)
-      this.docStartChecked = true
-      if (/^---[ \t]*$/.test(firstLine)) {
-        this.inFrontmatter = true
-        this.frontmatterBuf = probe.slice(nl + 1)
-      } else {
-        const released = this.frontmatterBuf
-        this.frontmatterBuf = ''
-        return released
-      }
-    }
-
-    // Require a trailing newline while streaming so mid-chunk `---` (e.g. `---` + `-more`) cannot close early.
-    const closeMatch = /(?:^|\n)(?:---|\.\.\.)[ \t]*\n/.exec(this.frontmatterBuf)
-    if (!closeMatch) return ''
-    const rest = this.frontmatterBuf.slice(closeMatch.index + closeMatch[0].length)
-    this.inFrontmatter = false
-    this.frontmatterBuf = ''
-    return rest
   }
 
   /** Cross-delta fenced code block filter supporting both ` ``` ` and `~~~`. */
@@ -551,7 +582,7 @@ export class SentenceSegmenter {
   }
 
   private cleanCompleteText(raw: string): string {
-    return plainText(raw, {
+    return cleanMarkdownBody(raw, {
       policy: this.tablePolicy,
       placeholder: this.tablePlaceholder,
     })
@@ -629,7 +660,7 @@ export class SentenceSegmenter {
   /** Feed a raw streaming delta and return all completed sentences. */
   feed(chunk: string): string[] {
     if (!chunk) return []
-    const noFrontmatter = this.dropFrontmatter(chunk)
+    const noFrontmatter = this.frontmatter.read(chunk)
     const noFence = noFrontmatter ? this.dropFences(noFrontmatter) : ''
     const noMath = noFence ? this.dropBlockMath(noFence) : ''
     const noTable = noMath ? this.filterTables(noMath) : ''
@@ -642,20 +673,8 @@ export class SentenceSegmenter {
 
   /** Flush remaining buffered text at end-of-stream and reset internal state. */
   flush(): string[] {
-    let tailRaw = ''
-
-    if (!this.docStartChecked && this.frontmatterBuf) {
-      tailRaw += this.frontmatterBuf
-    } else if (this.inFrontmatter && this.frontmatterBuf) {
-      // Allow EOF-terminated frontmatter (`---` without a trailing newline) to close cleanly on flush.
-      const eofClose = /(?:^|\n)(?:---|\.\.\.)[ \t]*\r?$/.exec(this.frontmatterBuf)
-      if (!eofClose) {
-        tailRaw += this.frontmatterBuf
-      }
-    }
-    this.docStartChecked = false
-    this.inFrontmatter = false
-    this.frontmatterBuf = ''
+    let tailRaw = this.frontmatter.read('', true)
+    this.frontmatter = new LeadingFrontmatter()
 
     if (this.hangChars) {
       if (this.fenceChar !== null) this.fenced += this.hangChars

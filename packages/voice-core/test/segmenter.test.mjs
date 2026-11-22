@@ -279,4 +279,62 @@ describe('segmenter: frontmatter, tilde fences, math, callouts, bare URLs, cross
     const rest = stallSeg.flush()
     assert.ok([...liveEmitted, ...rest].join('').includes('第二句立刻输出'))
   })
+
+  it('recognizes metadata at the start of a note at any chunk boundary', () => {
+    const body = '正文第一句。正文第二句。'
+    const metadata = [
+      '---\n# comment\ntags:\n  - voice\n---\n',
+      '---\n"custom key": "value"\n---\n',
+      "---\n'custom key': value\n...\n",
+      '---\n𠮷名: 某人\n---\n',
+      '---\n- name: sample\n---\n',
+      '---\n---\n',
+      '\uFEFF--- \r\n\r\n...\r\n',
+      '---\nnotes: |\n  ---\n  metadata continues\n---\n',
+      '---\nnotes: |\n  ...\n  metadata continues\n...\n',
+    ]
+    for (const prefix of metadata) {
+      const note = prefix + body
+      assert.equal(plainText(note), body, prefix)
+      for (const size of [1, 2, 7, note.length]) {
+        const segmenter = new SentenceSegmenter()
+        const spoken = []
+        for (let i = 0; i < note.length; i += size) spoken.push(...segmenter.feed(note.slice(i, i + size)))
+        assert.deepEqual([...spoken, ...segmenter.flush()], ['正文第一句。', '正文第二句。'], prefix)
+      }
+    }
+  })
+
+  it('speaks prose between horizontal rules as soon as the first sentence arrives', () => {
+    for (const firstLine of ['第一句。', 'Here is the answer.']) {
+      const prefix = '---\n\n' + firstLine
+      const tail = '\n---\n第三句。'
+      assert.ok(plainText(prefix + tail).includes(firstLine))
+      for (const chunks of [[prefix], [...prefix]]) {
+        const segmenter = new SentenceSegmenter()
+        assert.deepEqual(chunks.flatMap(chunk => segmenter.feed(chunk)), [firstLine])
+        assert.deepEqual([...segmenter.feed(tail), ...segmenter.flush()], ['第三句。'])
+      }
+    }
+  })
+
+  it('bounds ambiguous keys identically in a complete note and in streamed chunks', () => {
+    const key = 'a'.repeat(125)
+    const content = '---\n' + key + ': preserved.\n---\nDone.'
+    assert.ok(plainText(content).includes('preserved.'))
+    for (const chunks of [[content], [...content]]) {
+      const segmenter = new SentenceSegmenter()
+      const spoken = [...chunks.flatMap(chunk => segmenter.feed(chunk)), ...segmenter.flush()]
+      assert.deepEqual(spoken, [key + ': preserved.', 'Done.'])
+    }
+  })
+
+  it('recognizes a closing delimiter at EOF, recovers unclosed metadata, and resets on flush', () => {
+    const segmenter = new SentenceSegmenter()
+    for (const note of ['---\n---', '---\r\ntitle: Note\r\n...']) {
+      assert.deepEqual([...segmenter.feed(note), ...segmenter.flush()], [])
+    }
+    assert.deepEqual([...segmenter.feed('---\ntitle: unfinished'), ...segmenter.flush()], ['title: unfinished'])
+    assert.deepEqual([...segmenter.feed('---\n\n第一句。第二句。'), ...segmenter.flush()], ['第一句。', '第二句。'])
+  })
 })

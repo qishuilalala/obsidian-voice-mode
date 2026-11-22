@@ -127,3 +127,12 @@ export {
   type DomConstructorWindow,
   type FocusTextInjectorOptions,
 } from './focus-injector.ts'
+
+export {
+  BrowserAudioSink,
+  SystemTtsEngine,
+  SYSTEM_TTS_MIME,
+  buildSystemTtsSegments,
+  type SystemTtsSegment,
+  type SystemTtsPayload,
+} from './system-tts-playback.ts'

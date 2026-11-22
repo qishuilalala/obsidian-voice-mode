@@ -2,6 +2,7 @@ import { execFileSync } from "node:child_process";
 import fs from "node:fs";
 import path from "node:path";
 import process from "node:process";
+import { build } from "esbuild";
 
 const ROOT_DIR = process.cwd();
 const PACKAGES = ["packages/voice-core", "packages/voice-browser"];
@@ -61,3 +62,26 @@ for (const pkgRel of PACKAGES) {
   }
   console.log(`[build:packages] Built and verified ${pkgRel}/dist (${distFiles.length} files)`);
 }
+
+// Resolve the consumer-facing exports, bypassing the workspace's TypeScript source aliases.
+const probe = await build({
+  stdin: {
+    contents: "export { sanitizeForTts } from '@voice-mode/core';",
+    resolveDir: path.join(ROOT_DIR, "packages/obsidian-plugin"),
+  },
+  tsconfigRaw: {},
+  format: "esm",
+  bundle: true,
+  minifySyntax: true,
+  metafile: true,
+  write: false,
+});
+const [{ inputs }] = Object.values(probe.metafile.outputs);
+const includesCatalog = Object.entries(inputs).some(([name, input]) =>
+  /\/(voice-catalog|llm-router)\.js$/.test(name) && input.bytesInOutput > 0,
+);
+const probeBytes = probe.outputFiles[0].contents.length;
+if (includesCatalog || probeBytes >= 10 * 1024) {
+  throw new Error(`Core tree-shaking regression: sanitizeForTts bundle is ${probeBytes} bytes, includes catalog: ${includesCatalog}`);
+}
+console.log(`[build:packages] sanitizeForTts standalone bundle: ${probeBytes} bytes`);

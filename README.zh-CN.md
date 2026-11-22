@@ -8,7 +8,7 @@
 >
 > **`main` 当前已上线并实测能力（`0.1.0`）**：
 > - **已落地并实测（M0–M6）**：
->   - **桌面 100% 本地离线 WASM 听写（`SenseVoice WASM`）**：隔离 `MEMFS` Web Worker 运行 `Silero VAD` + `SenseVoice int8`（`sherpa-onnx@2.0.2`），支持 `toggle` 连续听写、`single` 单句自动停止与 `push-to-talk` 按住说话，支持空闲 Worker 自动卸载释放内存（`main.js` 仅 `284.13 KB`，全仓 `166` 项单测）。
+>   - **桌面 100% 本地离线 WASM 听写（`SenseVoice WASM`）**：隔离 `MEMFS` Web Worker 运行 `Silero VAD` + `SenseVoice int8`（`sherpa-onnx@2.0.2`），支持 `toggle` 连续听写、`single` 单句自动停止与 `push-to-talk` 按住说话，支持空闲 Worker 自动卸载释放内存（`main.js` 仅 `284.40 KiB`，全仓 `170` 项单测）。
 >   - **Vault 外显式触发 + SHA256 校验模型管理器**：支持离线听写栈（`245.3 MB`）与可选离线 `vits-zh-ll` 朗读包（`116.1 MB`）的 `.part` 断点续传、主备源自动切换（`huggingface.co` / `hf-mirror.com` 与 `registry.npmjs.org` / `registry.npmmirror.com`）、一键打开目录与一键清理，严格校验路径位于 Vault 之外（`~/.cache/voice-mode/models/` / `%LOCALAPPDATA%\voice-mode\models\`）。
 >   - **个人纠错词表可视化编辑与全场景光标注入**：支持多同音别名单遍替换为专业术语或 `[[双链笔记]]`，经 `FocusTextInjector` 精准写入 CodeMirror 6 主编辑器、全局搜索框、Shadow DOM 输入框及 Lexical/ProseMirror 第三方侧栏（`Copilot 4.0.20`）。
 >   - **Markdown/表格降噪按句朗读、字幕档位播控与原生 AEC3 外放语音打断**：支持系统 `speechSynthesis`、桌面可选离线 `vits-wasm`（5 音色，单重模型互斥）、可选本机 `kokoro-daemon`（`Kokoro 103` 音色，`< 1s` 自动回退，实测 `3 ms`）及 BYOK `openai-compat` / 实网 `mimo` 云端 TTS（按预设隔离 `SecretStorage` + 零重定向 CORS 兜底），配套字号/宽度档位字幕条、暂停/跳句/停止按钮、切笔记自动中断与原生 AEC3 免手按语音打断（`180 s` 扬声器连续外放 `0` 自打断，外部语音打断 `66–370 ms < 600 ms`，`system` TTS 下自动锁定 `manual`）。
@@ -39,7 +39,7 @@
 | --- | --- | --- |
 | `packages/voice-core`（`@voice-mode/core`） | 零依赖纯 TS 语音管线：Markdown/表格朗读分句、ASR 纠错词表、情感标签 DSL、固定 SHA256 模型清单与 USTAR tar 解包器、`OpenAiCompatAsrTransport`、`OpenAiCompatTtsEngine` / `MimoTtsEngine` + `sniffAudioMime`、密钥脱敏与 `< 400` 行双协议 BYOK `llm-router` | 零第三方运行时依赖；禁 `obsidian`、`electron`、`node:*` |
 | `packages/voice-browser`（`@voice-mode/browser`） | 浏览器/Electron 音频契约：16 kHz `AudioWorklet` 重采样、AEC3 探针与 `AecBargeInMonitor`、支持暂停/跳句的 `PlaybackQueue`、隔离 `MEMFS` Web Worker 运行时/客户端、`VitsWasmTtsEngine`、离线听写与零 WASM 的 `CloudDictationSession`（`640 ms` 预卷缓冲 + 断句） | 仅依赖标准 Web/Audio API；禁 `obsidian` |
-| `packages/obsidian-plugin`（`@voice-mode/obsidian-plugin`） | 极薄 Obsidian 适配层，通过 `esbuild` 打包为根目录 `main.js`（当前 `284.13 KB`，远低于 `< 5 MB` Obsidian Sync 预算） | `obsidian`（`minAppVersion: 1.11.4`） |
+| `packages/obsidian-plugin`（`@voice-mode/obsidian-plugin`） | 极薄 Obsidian 适配层，通过 `esbuild` 打包为根目录 `main.js`（当前 `284.40 KiB`，远低于 `< 5 MB` Obsidian Sync 预算） | `obsidian`（`minAppVersion: 1.11.4`） |
 
 ### Obsidian 真机 Web Worker WASM 实测基准（M0、M1 与 M2 门禁已通过 · 2026-11-22）
 
