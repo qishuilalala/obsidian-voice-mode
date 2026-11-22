@@ -129,7 +129,7 @@ So I built **Voice Mode** (`voice-mode`, MIT licensed) — a local-first voice I
 ### Honest limitations & mobile behavior (`isDesktopOnly: false`)
 
 - **Mobile memory & WebView differences**: To stay well under iOS `WKWebView`'s ~500 MB Jetsam ceiling, 200 MB+ local WASM models are disabled on mobile (`Allow cloud fallback on mobile` defaults to `false`). iOS `WKWebView` supports native system `speechSynthesis` out of the box, while Android System WebView does not expose `window.speechSynthesis`—so Android read-aloud and mobile dictation use opt-in BYOK endpoints.
-- **Offline VITS speed**: Local desktop `vits-zh-ll` runs single-threaded in WASM at `RTF ~1.27` (slightly slower than real-time on long paragraphs), so OS system speech and BYOK TTS remain the snappiest defaults while an optional native `voice-daemon` (Kokoro 103 voices) is coming in Wave 3.
+- **Offline VITS speed**: Local desktop `vits-zh-ll` runs single-threaded in WASM at `RTF ~1.27` (slightly slower than real-time on long paragraphs), so OS system speech and BYOK TTS remain the snappiest zero-setup defaults while power users can pair the optional local [`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon) for native `Kokoro 103` voices (`< 1s` auto-fallback).
 
 ### Links
 
@@ -292,7 +292,7 @@ GitHub：https://github.com/qishuilalala/obsidian-voice-mode
 - **零依赖 BYOK 路由 + `SecretStorage`**：`@voice-mode/core` 零运行时 npm 依赖，`396` 行双协议路由覆盖 DeepSeek / Qwen / 豆包 / Kimi / SiliconFlow / OpenRouter / OpenAI / Anthropic / 本地 Ollama（自动处理 `Origin: app://obsidian.md` CORS 回退），API Key 只存 Obsidian `1.11.4+` 原生 `SecretStorage`，绝不写 `data.json`。
 - **移动端边界**：`isDesktopOnly: false`（已通过 `Android 15 AVD Emulator (Obsidian 1.15.1 APK, System WebView 124.0)` 与 `Xcode iOS 27.0 Simulator WKWebView harness` 验证），移动端自动屏蔽重型 WASM 防 Jetsam OOM；iOS `WKWebView` 可直接用系统语音，Android System WebView 原生无 `speechSynthesis`（保留 `webkitSpeechRecognition` 并友好提示开启 BYOK 云端 TTS）。
 
-目前可通过 BRAT（填入 `qishuilalala/obsidian-voice-mode`）或下载 Release `0.1.0` 的 `main.js` / `manifest.json` / `styles.css` 安装。代码拆成了 `@voice-mode/core` 和 `@voice-mode/browser`，接下来 Wave 2/3 还会复用到 SillyTavern 和本机共享 `voice-daemon`（解锁原生 Kokoro 103 音色）。欢迎各位 V 友拍砖！
+目前可通过 BRAT（填入 `qishuilalala/obsidian-voice-mode`）或下载 Release `0.1.0` 的 `main.js` / `manifest.json` / `styles.css` 安装。底层拆成了 `@voice-mode/core` 和 `@voice-mode/browser`，同系开源矩阵还包含 SillyTavern 扩展 [`sillytavern-voice-mode`](https://github.com/qishuilalala/sillytavern-voice-mode)、本机共享守护进程与浏览器扩展 [`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon)（解锁原生 Kokoro 103 音色，多端共享单份模型）及 [`dsh-voice-mode`](https://github.com/qishuilalala/dsh-voice-mode)。欢迎各位 V 友拍砖！
 ```
 
 ---

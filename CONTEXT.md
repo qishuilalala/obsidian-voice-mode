@@ -4,8 +4,8 @@
 
 ## 项目定位与当前阶段
 
-- **产品**：Obsidian 官方插件（ID `voice-mode`，Repo `qishuilalala/obsidian-voice-mode`，`minAppVersion: 1.11.4`，`isDesktopOnly: false`），也是跨平台 Voice Mode 系列开源矩阵的首发母仓。
-- **当前真实状态（`0.1.0` · M0–M4 本机与移动模拟器全闭环封版就绪，遵守“先不发”暂未推公开 Tag / PR）**：已完成三包编译产物与治理体系（`T1`）、桌面离线 WASM 听写（`M1`）、Markdown/表格降噪朗读 + 原生 AEC3 打断（`M2`）、BYOK 流式问答 + 4 重护栏润色 + 云端 ASR + 声学/脱敏门禁（`M3`），以及 **Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）`M-1`–`M-5` 验证 + Xcode `iOS 27.0` Simulator `WKWebView` 测试基座验证 + 实网 `MiMo` TTS 验证 + 全新空 Vault / `BRAT 2.2.0` 双冒烟 + 15s 横竖屏有声 Demo 与首发文案包（`T4`）**（`main.js` = `284.13 KB`，`llm-router.ts` `396` 行，全仓 `166` 项单测全绿）。
+- **产品**：Obsidian 官方插件（ID `voice-mode`，Repo `qishuilalala/obsidian-voice-mode`，`minAppVersion: 1.11.4`，`isDesktopOnly: false`），也是跨平台 Voice Mode 系列开源矩阵的首发母仓（与 [`sillytavern-voice-mode`](https://github.com/qishuilalala/sillytavern-voice-mode)、[`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon) 及 [`dsh-voice-mode`](https://github.com/qishuilalala/dsh-voice-mode) 共用 `@voice-mode/{core,browser}`）。
+- **当前真实状态（`0.1.0` · M0–M6 全矩阵闭环验证通过；发布资产与首发文案包已在本地就绪，遵守“先不发”暂缓外部发布）**：已完成三包编译产物与治理体系（`T1`）、桌面离线 WASM 听写（`M1`）、Markdown/表格降噪朗读 + 原生 AEC3 打断（`M2`）、BYOK 流式问答 + 4 重护栏润色 + 云端 ASR + 声学/脱敏门禁（`M3`）、Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）`M-1`–`M-5` + Xcode `iOS 27.0` Simulator `WKWebView` 测试基座 + 实网 `MiMo` TTS + 全新空 Vault / `BRAT 2.2.0` 冒烟 + 15s 双画幅 Demo（`M4`），以及 **Wave 2 `sillytavern-voice-mode@0.1.0`（`M5`）与 Wave 3 `voice-mode-daemon@0.1.0` + 真实 Obsidian `kokoro-daemon` 联调 E2E + `dsh-voice-mode` 内核反哺统一（`M6`）**（`main.js` = `284.13 KB`，`llm-router.ts` `396` 行，全仓 `166` 项单测全绿）。
 
 ## 三包架构与硬依赖边界
 
@@ -50,6 +50,6 @@ pnpm run check:all              # 以上完整门禁顺序执行（PR 与发版�
 | [docs/rules/STATE.md](docs/rules/STATE.md) | 当前阶段恢复点：精确区分已落地与未对外发布项 |
 | [docs/plan/master-plan.md](docs/plan/master-plan.md) | 实测基准、三波开源矩阵与 M0–M6 规划 |
 | [docs/adr/README.md](docs/adr/README.md) | ADR-0001 ~ 0005 架构决策索引 |
-| [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md) | M0–M4 桌面真机、实网 MiMo、Android 35 APK 与 iOS 27 `WKWebView` 实测报告 |
+| [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md) | M0–M6 桌面真机、实网 MiMo、Android 35 APK、iOS 27 `WKWebView` 与跨宿主 `voice-daemon` 联调报告 |
 | [docs/distribution/launch-playbook.md](docs/distribution/launch-playbook.md) / [launch-kit.md](docs/distribution/launch-kit.md) | `obsidian-releases` 提审排雷、15 秒 Demo 分镜与全渠道首发定稿包 |
 | [SECURITY.md](SECURITY.md) | 隐私数据流、`SecretStorage` 边界、模型 SHA256 与 GPL 隔离声明 |

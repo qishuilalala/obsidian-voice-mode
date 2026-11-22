@@ -90,8 +90,8 @@ Obsidian 官方社区目录（截至 2026-11-21 共 10,682 插件，`voice-mode`
    - 在 `dsh-voice-mode` README 的“相关开源项目”区链接 `obsidian-voice-mode`，说明本仓将其沉淀的语音引擎抽离为宿主无关 `@voice-mode/core`，承接非编程知识库写作场景。
 2. **Wave 1 主爆点 → `obsidian-voice-mode`（本仓）**：
    - 依托 Obsidian 官方社区目录的长尾自然搜索（`voice`、`dictation`、`speech`、`read aloud`、`offline`），沉淀首批核心 Star 与 Issue 社区；
-   - 在 README 路线图区预告 Wave 2（SillyTavern 全双工情感语音）与 Wave 3（统一本机 `voice-daemon`），引导关注 GitHub Release 与 Discussions。
-3. **Wave 2 双爆点 → `sillytavern-voice-mode`**：
-   - 复用 `@voice-mode/core` + `@voice-mode/browser` 在 2–3 周内发布，借 SillyTavern 垂直社群（Reddit `r/SillyTavernAI`、Discord、B 站酒馆圈）引爆第二波 Star，反向为 `@voice-mode/core` 与本仓导流。
-4. **Wave 3 基础设施留存 → 统一 `voice-daemon` + Chrome/Edge 扩展**：
+   - 在 README 路线图区串联 Wave 2（[`sillytavern-voice-mode`](https://github.com/qishuilalala/sillytavern-voice-mode) 全双工情感语音）与 Wave 3（[`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon) 统一本机守护进程 + MV3 扩展），引导关注 GitHub Release 与 Discussions。
+3. **Wave 2 双爆点 → [`sillytavern-voice-mode`](https://github.com/qishuilalala/sillytavern-voice-mode)**：
+   - 复用 `75.05%` `@voice-mode/core` + `@voice-mode/browser`，借 SillyTavern 垂直社群（Reddit `r/SillyTavernAI`、Discord、B 站酒馆圈）引爆第二波 Star，反向为 `@voice-mode/core` 与本仓导流。
+4. **Wave 3 基础设施留存 → 统一 [`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon) + Chrome/Edge 扩展**：
    - 当用户同时使用 Obsidian、SillyTavern、浏览器扩展或 `dsh-voice-mode` 时，通过可选一键安装 `voice-daemon` 实现**“下载一次模型，四端共享缓存 + 解锁 Kokoro 103 音色”**，把单次尝鲜流量沉淀为跨软件长期留存用户。

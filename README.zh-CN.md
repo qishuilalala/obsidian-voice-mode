@@ -4,16 +4,16 @@
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> **当前真实状态（`0.1.0` · 已完成桌面真机、实网 `MiMo`、Android 15 AVD 模拟器官方 APK 与 Xcode iOS 27.0 Simulator `WKWebView` 闭环验证，备审待发）**
+> **当前真实状态（`0.1.0` · 已完成 M0–M6 桌面真机、实网 `MiMo`、Android 15 AVD 模拟器官方 APK、Xcode iOS 27.0 Simulator `WKWebView` 与跨宿主 `voice-daemon` 联调闭环验证，备审待发）**
 >
 > **`main` 当前已上线并实测能力（`0.1.0`）**：
-> - **已落地并实测（M0 + M1 + M2 + M3 + M4）**：
+> - **已落地并实测（M0–M6）**：
 >   - **桌面 100% 本地离线 WASM 听写（`SenseVoice WASM`）**：隔离 `MEMFS` Web Worker 运行 `Silero VAD` + `SenseVoice int8`（`sherpa-onnx@2.0.2`），支持 `toggle` 连续听写、`single` 单句自动停止与 `push-to-talk` 按住说话，支持空闲 Worker 自动卸载释放内存（`main.js` 仅 `284.13 KB`，全仓 `166` 项单测）。
 >   - **Vault 外显式触发 + SHA256 校验模型管理器**：支持离线听写栈（`245.3 MB`）与可选离线 `vits-zh-ll` 朗读包（`116.1 MB`）的 `.part` 断点续传、主备源自动切换（`huggingface.co` / `hf-mirror.com` 与 `registry.npmjs.org` / `registry.npmmirror.com`）、一键打开目录与一键清理，严格校验路径位于 Vault 之外（`~/.cache/voice-mode/models/` / `%LOCALAPPDATA%\voice-mode\models\`）。
 >   - **个人纠错词表可视化编辑与全场景光标注入**：支持多同音别名单遍替换为专业术语或 `[[双链笔记]]`，经 `FocusTextInjector` 精准写入 CodeMirror 6 主编辑器、全局搜索框、Shadow DOM 输入框及 Lexical/ProseMirror 第三方侧栏（`Copilot 4.0.20`）。
->   - **Markdown/表格降噪按句朗读、字幕档位播控与原生 AEC3 外放语音打断**：支持系统 `speechSynthesis`、桌面可选离线 `vits-wasm`（5 音色，单重模型互斥）、可选本机 `kokoro-daemon`（`< 1s` 回退）及 BYOK `openai-compat` / 实网 `mimo` 云端 TTS（按预设隔离 `SecretStorage` + 零重定向 CORS 兜底），配套字号/宽度档位字幕条、暂停/跳句/停止按钮、切笔记自动中断与原生 AEC3 免手按语音打断（`180 s` 扬声器连续外放 `0` 自打断，外部语音打断 `66–370 ms < 600 ms`，`system` TTS 下自动锁定 `manual`）。
+>   - **Markdown/表格降噪按句朗读、字幕档位播控与原生 AEC3 外放语音打断**：支持系统 `speechSynthesis`、桌面可选离线 `vits-wasm`（5 音色，单重模型互斥）、可选本机 `kokoro-daemon`（`Kokoro 103` 音色，`< 1s` 自动回退，实测 `3 ms`）及 BYOK `openai-compat` / 实网 `mimo` 云端 TTS（按预设隔离 `SecretStorage` + 零重定向 CORS 兜底），配套字号/宽度档位字幕条、暂停/跳句/停止按钮、切笔记自动中断与原生 AEC3 免手按语音打断（`180 s` 扬声器连续外放 `0` 自打断，外部语音打断 `66–370 ms < 600 ms`，`system` TTS 下自动锁定 `manual`）。
 >   - **可选 BYOK 选区/笔记语音问答、4 重护栏听写润色与云端转写（`SecretStorage`）**：上线 `Ask AI about selection or note` 流式问答模态框（支持口述提问、流式按句跟读与一键写入光标处）、听写后可选 4 层防幻觉 LLM 润色（任意错误零丢字回退原文）及零 WASM 依赖的 `openai-compat` `/audio/transcriptions` 转写（移动端受 `Allow cloud fallback on mobile` 严格门控）。
-> - **移动端与跨端边界**：已在 **Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）** 与 **Xcode `iOS 27.0` Simulator `WKWebView` 测试基座** 完成 `M-1`–`M-5` 验证（完整记录与可选口袋物理真机复核说明见 [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md) 与 [docs/rules/STATE.md](docs/rules/STATE.md)）。
+> - **移动端与跨端生态**：已在 **Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）** 与 **Xcode `iOS 27.0` Simulator `WKWebView` 测试基座** 完成 `M-1`–`M-5` 验证，并与 [`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon)、[`sillytavern-voice-mode`](https://github.com/qishuilalala/sillytavern-voice-mode) 完成跨宿主联调（详见 [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md) 与 [docs/rules/STATE.md](docs/rules/STATE.md)，保留可选口袋物理手机随身复核）。
 
 ---
 
@@ -27,7 +27,7 @@
 - **主编辑器与第三方侧栏零耦合注入（M1 已上线）**：优先写入当前 Markdown 编辑器光标处，也可直接向聚焦中的 Copilot（Lexical）等第三方侧栏输入框语音输入且零污染系统剪贴板。
 - **Markdown 与表格降噪朗读（M2 已上线）**：朗读前剥离 YAML Frontmatter、代码围栏（```` ``` ```` / `~~~`）、数学块（`$$...$$`）、裸 URL、Obsidian Callout 标记与 Markdown 管道表格，并将内联代码与 Wikilink 语法清理为自然口语文本，配合可调字号/宽度与暂停/跳句/停止按钮的悬浮字幕条、可选离线 `vits-wasm` / BYOK TTS 及原生 AEC3 外放语音打断（无原生回声消除或系统语音时自动降级为 `manual` 按键打断）。
 - **可选零依赖 BYOK 语音问答、4 重护栏润色与云端转写（M3 已上线）**：内置 `< 400` 行纯 TypeScript 双协议路由，支持 OpenAI 兼容接口（DeepSeek、阿里云百炼 Qwen、火山方舟 Doubao、Kimi、硅基流动、OpenRouter、OpenAI、本地 Ollama）、Anthropic Messages 及 `/audio/transcriptions` 语音转写，凭据严格托管于 Obsidian 原生 `SecretStorage`。
-- **可选统一本机 `voice-daemon`（计划 Wave 3）**：面向重度用户的一键可选加速进程，绕开 Electron V8 内存笼解锁 Kokoro 103 音色与跨软件单份模型共享缓存。
+- **可选统一本机 `voice-daemon`（Wave 3 已上线 — [`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon)）**：面向重度用户的可选本机加速守护进程，绕开 Electron V8 内存笼解锁原生 `Kokoro 103` 音色（含 `<whisper>` / `<break>` 情感合成），并与 [`sillytavern-voice-mode`](https://github.com/qishuilalala/sillytavern-voice-mode)、[`dsh-voice-mode`](https://github.com/qishuilalala/dsh-voice-mode) 及 Chrome/Edge MV3 扩展共享单份常驻模型（`622.7 MB` RSS），守护进程退出时 `< 1s`（实测 `3 ms`）自动无感回退。
 
 ---
 
@@ -58,7 +58,7 @@
 
 | 平台 | 目标定位 | 运行策略 |
 | --- | --- | --- |
-| **桌面端**（macOS / Windows / Linux，Obsidian `>= 1.11.4`） | 主力端（macOS M0–M4 已实测通过） | 已上线 Web Worker 离线 WASM 听写（`SenseVoice WASM`）、多引擎朗读（系统语音、可选离线 `vits-wasm` / 本机 `kokoro-daemon`、BYOK `openai-compat` / 实网 `mimo`）+ 原生 AEC3 外放打断，以及可选 BYOK 选区/笔记语音问答（`VoiceQaModal`）、4 层防幻觉润色与 `openai-compat` / `daemon` 转写 |
+| **桌面端**（macOS / Windows / Linux，Obsidian `>= 1.11.4`） | 主力端（macOS M0–M6 已实测通过，含 `voice-daemon` 联调 E2E） | 已上线 Web Worker 离线 WASM 听写（`SenseVoice WASM`）、多引擎朗读（系统语音、可选离线 `vits-wasm` / 本机 `kokoro-daemon`、BYOK `openai-compat` / 实网 `mimo`）+ 原生 AEC3 外放打断，以及可选 BYOK 选区/笔记语音问答（`VoiceQaModal`）、4 层防幻觉润色与 `openai-compat` / `daemon` 转写 |
 | **移动端**（iOS / Android，Obsidian `>= 1.11.4`） | 优雅降级（`isDesktopOnly: false`，已通过 Android 15 AVD 模拟器 `Obsidian 1.15.1` APK 与 Xcode `iOS 27.0` Simulator `WKWebView` 测试基座验证） | `Platform.isMobile` 下强制禁用 200 MB+ 本地 WASM 模型以防 iOS `WKWebView`（~500 MB Jetsam）闪退；iOS `WKWebView` 原生暴露 `speechSynthesis`（`68` 音色），Android System WebView（`124.0`）原生无 `window.speechSynthesis`（友好提示启用 BYOK TTS，同时保留 `webkitSpeechRecognition`），受 `allowCloudFallbackOnMobile`（默认 `false`）门控 |
 
 ---
@@ -102,7 +102,8 @@ pnpm run check:all
 - **M1（已完成 · 2026-11-22）**：桌面离线 WASM 听写（`Silero VAD` + `SenseVoice int8`）、Vault 外 SHA256 模型管理器、个人纠错词表 UI、主编辑器与 Copilot Lexical 侧栏注入。
 - **M2（已完成 · 2026-11-22）**：Markdown/表格降噪按句朗读、悬浮字幕字号/宽度档位与暂停/跳句/停止交互、可选离线 `vits-wasm` / BYOK TTS（`openai-compat`、`mimo`）及原生 AEC3 外放打断（`180 s` 零自打断压测，`66–370 ms` 语音打断）与 `manual` 兜底。
 - **M3 与 M4（已完成封版准备 · 2026-11-22）**：基于 `SecretStorage` 的可选 BYOK 选区/笔记语音问答（`VoiceQaModal`）、听写后 4 层防幻觉润色（`enableLlmPolish`）、`openai-compat` `/audio/transcriptions` 转写（`CloudDictationSession`）、`< 1s` `DaemonClient` 接缝、401/500 密钥脱敏审计、桌面 4 项声学必过门禁（`A-1`–`A-4`）、实网 `MiMo` 朗读验收、全新空库 / `BRAT 2.2.0` 双冒烟及 Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）+ Xcode `iOS 27.0` Simulator `WKWebView` 测试基座 `M-1`–`M-5` 验证（`main.js` `284.13 KB`，`166` 项单测；具备向 `obsidianmd/obsidian-releases` 提审条件，保留可选口袋物理手机随身复核）。
-- **Wave 2（M5）与 Wave 3（M6）**：复用 `@voice-mode/core` 与 `@voice-mode/browser`，与 [`dsh-voice-mode`](https://github.com/qishuilalala/dsh-voice-mode) 联动推出 `sillytavern-voice-mode` 全双工情感语音插件，以及跨宿主统一 `voice-daemon` + 开源 Chrome/Edge 扩展。
+- **Wave 2（`M5` · 已完成 · 2026-11-22）**：[`sillytavern-voice-mode`](https://github.com/qishuilalala/sillytavern-voice-mode)（`0.1.0`，commit `b792551`）——SillyTavern `1.19.1` 全双工情感语音扩展，复用 `75.05%` `@voice-mode/{core,browser}@0.1.0`（`firstSentenceLeadMs = 341 ms`、`20/20` 原生 AEC3 `detect` 外放语音打断 + `stopGeneration()` 均值 `205 ms < 600 ms`、角色 `voiceMap` 抽屉、跨句 `<whisper>` 情感 DSL 与可选 SSRF 加固服务端插件）。
+- **Wave 3（`M6` · 已完成 · 2026-11-22）**：[`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon)（`0.1.0`，commit `29ca1f9`）——`@voice-mode/daemon`（`127.0.0.1:18790`、`sk-vmd-` 192-bit `0o600` Bearer 鉴权 + `Host`/`Origin` 白名单，原生 `sherpa-onnx-node` 解锁 `Kokoro 103` 音色 + `Zipformer2` + `SenseVoice`）与零 `<all_urls>` 权限的 Chrome/Edge MV3 `@voice-mode/browser-extension`（已在真实 Obsidian `1.15.1` + Chrome `159` 完成联调 E2E：单份常驻模型 `modelInstanceCount = 1` 共享 `622.7 MB` RSS、`<whisper>` + `<break 250ms>` `24 kHz` WAV 朗读、`daemon` ASR 转写 `631 ms`、停掉守护进程 `3 ms < 1,000 ms` 自动回退），并完成 [`dsh-voice-mode`](https://github.com/qishuilalala/dsh-voice-mode) 内核反哺收敛（净删 `725` 行重复代码，`110/110` 测试文件全绿）。
 
 完整规划与架构依据见 [docs/plan/master-plan.md](docs/plan/master-plan.md) 与 [docs/adr/README.md](docs/adr/README.md)。
 
