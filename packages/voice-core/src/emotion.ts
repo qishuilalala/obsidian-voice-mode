@@ -22,6 +22,7 @@ export interface EmotionPromptOptions {
   allowWhisper?: boolean
   allowBreaks?: boolean
   maxBreakMs?: number
+  allowRoleplayNarration?: boolean
 }
 
 export type EmotionPlanMode = 'pcm-segments' | 'instructions' | 'strip'
@@ -155,6 +156,7 @@ const ANY_EMOTION_CUE_RE = new RegExp(EMOTION_TAG_PATTERN, 'i')
 export function buildEmotionPromptInstruction(options: EmotionPromptOptions = {}): string {
   const allowWhisper = options.allowWhisper ?? true
   const allowBreaks = options.allowBreaks ?? true
+  const allowRoleplayNarration = options.allowRoleplayNarration ?? false
   const rawMax = options.maxBreakMs ?? DEFAULT_PROMPT_MAX_BREAK_MS
   const maxBreakMs =
     typeof rawMax === 'number' && Number.isFinite(rawMax)
@@ -162,7 +164,9 @@ export function buildEmotionPromptInstruction(options: EmotionPromptOptions = {}
       : DEFAULT_PROMPT_MAX_BREAK_MS
 
   const parts = [
-    'Write natural spoken dialogue without Markdown formatting, bullet symbols, code fences, or stage-direction asterisks.',
+    allowRoleplayNarration
+      ? 'Write natural spoken dialogue without Markdown code fences or bullet lists; apply emotion tags only to spoken dialogue.'
+      : 'Write natural spoken dialogue without Markdown formatting, bullet symbols, code fences, or stage-direction asterisks.',
   ]
   if (allowWhisper) {
     parts.push(

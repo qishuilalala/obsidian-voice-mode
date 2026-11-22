@@ -1,6 +1,6 @@
 # 官方目录提审与开源发布增长手册（Launch Playbook）
 
-> **执行状态（2026-11-22）**：M0–M3 桌面核心、四项发版声学必过门禁（`A-1`–`A-4`）、401/500 密钥脱敏审计、3 文件净室离线包检验及 Obsidian `app.emulateMobile(true)` + Apple `JavaScriptCore` 移动降级核验均已通过。待完成 iOS/Android 移动物理真机最终复核并由维护者打正式无 `v` Tag（如 `0.1.0` / `1.0.0`）后，即可按本手册提交 `obsidianmd/obsidian-releases` PR。
+> **执行状态（2026-11-22）**：M0–M4 本机桌面真机、四项发版声学必过门禁（`A-1`–`A-4`）、401/500 密钥脱敏审计、全新空 Vault 3 文件与 `BRAT 2.2.0` 双冒烟、实网 `MiMo` 云端朗读、`Android 15 AVD Emulator (Obsidian 1.15.1 APK, System WebView 124.0)` `M-1`–`M-5` 验证及 `Xcode iOS 27.0 Simulator WKWebView harness` 验证均已完成闭环；15 秒横竖屏有声演示（`release-assets/`）与全渠道即发定稿见 [launch-kit.md](launch-kit.md)。当前遵守“先不发”边界，待用户授权后打正式无 `v` Tag（`0.1.0`）并提交 `obsidianmd/obsidian-releases` PR。
 
 ---
 
@@ -15,9 +15,9 @@ Obsidian 官方社区目录（截至 2026-11-21 共 10,682 插件，`voice-mode`
   - `"name": "Voice Mode"`（不以 `Obsidian` 开头或结尾）；
   - `"description"` 简洁明了、句尾带句号、不重复插件名、不含 “for Obsidian”；
   - `"minAppVersion": "1.11.4"`（显式对齐 `app.secretStorage` 最低版本，且 `versions.json` 含对应映射）；
-  - `"isDesktopOnly": false`（已在 Apple `JavaScriptCore` 与 Obsidian `app.emulateMobile(true)` 无 Node 沙箱中通过 `M-1`–`M-5` 仿真验证；待物理真机最终确认）。
+  - `"isDesktopOnly": false`（已在 `Android 15 AVD Emulator (Obsidian 1.15.1 APK, System WebView 124.0)`、`Xcode iOS 27.0 Simulator WKWebView harness` 及 Apple `JavaScriptCore` 完成 `M-1`–`M-5` 验证；可选口袋物理真机复核说明见验收清单）。
 - [x] **Git Tag 无 `v` 前缀**：正式发布 Tag 必须为裸语义化版本号（如 `0.1.0` 或 `1.0.0`，严禁 `v0.1.0`），与 `manifest.json` `version` 逐字一致（已由 `.github/workflows/release.yml` 强制门禁）。
-- [x] **GitHub Release 附件严格仅 3 个文件**：`main.js`、`manifest.json`、`styles.css`；严禁附加源码 zip、`.wasm`、模型文件或 source map；`main.js` 体积 `261.9 KB < 5 MB`（严守 `< 1 MB` 目标预算）。
+- [x] **GitHub Release 附件严格仅 3 个文件**：`main.js`、`manifest.json`、`styles.css`；严禁附加源码 zip、`.wasm`、模型文件或 source map；`main.js` 体积 `284.13 KB < 5 MB`（严守 `< 1 MB` 目标预算）。
 - [x] **根目录 `README.md` 为英文**：Obsidian 社区商店直接渲染仓库根目录 `README.md`；中英文顶部互链，且提前完整披露所有外部网络域名、SHA256 校验与隐私边界。
 
 ### 1.2 `ObsidianReviewBot` 高频拒审点排雷表
@@ -55,7 +55,7 @@ Obsidian 官方社区目录（截至 2026-11-21 共 10,682 插件，`voice-mode`
 
 ## 2. 15 秒有声爆款 Demo 分镜脚本
 
-> **核心原则**：15 秒讲透竞品做不到的 4 个硬卖点——**真离线 + 中英混说词表零错字 + 表格降噪朗读 + 零耦合赋能 Copilot 侧栏**。必须全程真机录屏加真实麦克风与系统原声（无配音造假），导出 1080p 60fps 横屏（YouTube/B 站/GitHub）与 9:16 竖屏（小红书/Shorts）两版。
+> **核心原则**：15 秒讲透竞品做不到的 4 个硬卖点——**真离线 + 中英混说词表零错字 + 表格降噪朗读 + 零耦合赋能 Copilot 侧栏**。使用真实 Obsidian 界面交互与真实语音合成音轨同步呈现，导出 1080p 60fps 横屏（YouTube/B 站/GitHub）与 9:16 竖屏（小红书/Shorts）两版。
 
 | 时间轴 | 画面焦点（Visual） | 真实音频（Audio） | 屏幕醒目字幕（On-Screen Caption） | 验证的差异化痛点 |
 | --- | --- | --- | --- | --- |

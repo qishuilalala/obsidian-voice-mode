@@ -259,8 +259,9 @@ describe("daemonTokenSecretId SecretStorage isolation and settings-tab annotatio
     const readAloudGroup = kokoroDefs.find((g) => g.heading === "Read aloud");
     const voiceDef = readAloudGroup.items.find((i) => i.name === "Preferred voice name");
     assert.ok(voiceDef.desc.includes("zf_001"));
+    assert.ok(voiceDef.desc.includes("zf_xiaobei"));
     assert.ok(voiceDef.desc.includes("zm_010"));
-    assert.ok(voiceDef.desc.includes("af_heart"));
+    assert.ok(voiceDef.desc.includes("af_maple"));
     assert.ok(voiceDef.desc.includes("0..102"));
 
     // Verify display() also binds SecretComponent cleanly

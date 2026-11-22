@@ -43,11 +43,16 @@ describe('emotion tag DSL', () => {
     assert.equal(stripEmotionTags('a<sigh>b<emphasis>c').replace(/\s+/g, ' ').trim(), 'a b c')
   })
 
-  it('builds concise LLM emotion system instructions respecting allowWhisper, allowBreaks, and maxBreakMs', () => {
+  it('builds concise LLM emotion system instructions respecting allowWhisper, allowBreaks, maxBreakMs, and allowRoleplayNarration', () => {
     const full = buildEmotionPromptInstruction()
     assert.ok(full.includes('<whisper>...</whisper>'))
     assert.ok(full.includes('<break 300ms>'))
     assert.ok(/markdown/i.test(full))
+    assert.ok(/asterisks/i.test(full))
+
+    const roleplay = buildEmotionPromptInstruction({ allowRoleplayNarration: true })
+    assert.equal(/asterisks/i.test(roleplay), false)
+    assert.ok(roleplay.includes('<whisper>...</whisper>'))
 
     const noWhisper = buildEmotionPromptInstruction({ allowWhisper: false, maxBreakMs: 800 })
     assert.equal(noWhisper.includes('<whisper>'), false)

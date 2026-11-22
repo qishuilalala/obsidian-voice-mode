@@ -214,7 +214,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     }
     if (engine === "kokoro-daemon") {
       return {
-        desc: "Optional Kokoro speaker ID or numeric index (for example: zf_001, zm_010, af_heart, or 0..102).",
+        desc: "Optional Kokoro speaker ID or numeric index (for example: zf_001, zf_xiaobei, zm_010, af_maple, or 0..102).",
         placeholder: "zf_001",
       };
     }

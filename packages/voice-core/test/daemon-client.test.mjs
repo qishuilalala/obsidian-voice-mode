@@ -6,8 +6,10 @@ import {
   DEFAULT_DAEMON_BASE_URL,
   DEFAULT_DAEMON_PROBE_TIMEOUT_MS,
   KOKORO_DEFAULT_SPEAKERS,
+  KOKORO_SPEAKERS_103,
   DaemonClient,
   DaemonClientError,
+  findKokoroVoice,
   normalizeKokoroVoice,
   resolveDaemonBaseUrl,
 } from '../src/index.ts'
@@ -83,15 +85,31 @@ describe('daemon-client: loopback http/https URL guard, clean .asr/.tts seams, a
     assert.equal(client.asTtsEngine(), client.tts)
   })
 
-  it('exports curated KOKORO_DEFAULT_SPEAKERS and normalizes named voices and numeric sid 0..102', () => {
-    const ids = KOKORO_DEFAULT_SPEAKERS.map((s) => s.id)
-    for (const required of ['zf_001', 'zm_010', 'af_heart', 'am_adam', 'bf_emma']) {
-      assert.ok(ids.includes(required), `missing curated speaker ${required}`)
-    }
+  it('exports authoritative Kokoro v1.1-zh 103 speaker IDs (0..102) and curated KOKORO_DEFAULT_SPEAKERS', () => {
+    assert.equal(KOKORO_SPEAKERS_103.length, 103)
+    assert.equal(KOKORO_SPEAKERS_103[0], 'af_maple')
+    assert.equal(KOKORO_SPEAKERS_103[1], 'af_sol')
+    assert.equal(KOKORO_SPEAKERS_103[2], 'bf_vale')
+    assert.equal(KOKORO_SPEAKERS_103[3], 'zf_001')
+    assert.equal(KOKORO_SPEAKERS_103[59], 'zm_010')
+    assert.equal(KOKORO_SPEAKERS_103[102], 'zm_100')
+
+    const byId = new Map(KOKORO_DEFAULT_SPEAKERS.map((s) => [s.id, s.sid]))
+    assert.equal(byId.get('zf_001'), 3)
+    assert.equal(byId.get('zf_xiaobei'), 48)
+    assert.equal(byId.get('zm_010'), 59)
+    assert.equal(byId.get('zm_013'), 62)
+    assert.equal(byId.get('af_maple'), 0)
+    assert.equal(byId.get('af_sol'), 1)
+    assert.equal(byId.get('bf_vale'), 2)
+
+    assert.deepEqual(findKokoroVoice('zf_001'), { name: 'zf_001', sid: 3 })
+    assert.deepEqual(findKokoroVoice('zm_010'), { name: 'zm_010', sid: 59 })
+    assert.deepEqual(findKokoroVoice('zf_xiaobei'), { name: 'zf_xiaobei', sid: 48 })
 
     assert.equal(normalizeKokoroVoice(''), 'zf_001')
     assert.equal(normalizeKokoroVoice('zm_010'), 'zm_010')
-    assert.equal(normalizeKokoroVoice('af_heart'), 'af_heart')
+    assert.equal(normalizeKokoroVoice('af_maple'), 'af_maple')
     assert.equal(normalizeKokoroVoice('0'), '0')
     assert.equal(normalizeKokoroVoice('102'), '102')
     assert.equal(normalizeKokoroVoice('103'), 'zf_001')
@@ -165,10 +183,9 @@ describe('daemon-client: probeHealth (/v1/health) with strict service="voice-dae
 })
 
 describe('daemon-client: kokoro-daemon TTS synthesis, health TTL caching, and < 1s default fallback', () => {
-  it('caches healthy probe for 15s and synthesizes WAV via POST /v1/audio/speech', async () => {
+  it('preserves <whisper> and <break> emotion tags in POST /v1/audio/speech while skipping tag-only empty input', async () => {
     let healthCount = 0
-    let speechCount = 0
-    let capturedBody = null
+    const capturedBodies = []
 
     const client = new DaemonClient({
       baseUrl: 'https://localhost:18790',
@@ -180,10 +197,9 @@ describe('daemon-client: kokoro-daemon TTS synthesis, health TTL caching, and < 
           return makeDaemonHealthResponse()
         }
         assert.equal(u, 'https://localhost:18790/v1/audio/speech')
-        speechCount += 1
         assert.equal(init.redirect, 'error')
         assert.equal(init.headers.Authorization, 'Bearer test-token-placeholder-123')
-        capturedBody = JSON.parse(String(init.body))
+        capturedBodies.push(JSON.parse(String(init.body)))
         return new Response(makeFakeWavBytes(), {
           status: 200,
           headers: { 'Content-Type': 'audio/wav' },
@@ -191,15 +207,28 @@ describe('daemon-client: kokoro-daemon TTS synthesis, health TTL caching, and < 
       },
     })
 
-    const res1 = await client.tts.synthesize('<whisper>你好 Kokoro</whisper> <break 300ms>', {
+    // Empty / emotion-tag-only input short-circuits before any HTTP call
+    const emptyRes = await client.tts.synthesize('  <break 300ms> <laugh>  ')
+    assert.equal(emptyRes.audio.byteLength, 0)
+    assert.equal(healthCount, 0)
+    assert.equal(capturedBodies.length, 0)
+
+    const res1 = await client.tts.synthesize('<whisper>secret</whisper> <break 300ms> hello', {
       voice: '50',
       rate: 1.25,
     })
     const res2 = await client.tts.synthesize('第二句复用健康缓存')
 
     assert.equal(healthCount, 1, 'second sentence within 15s TTL must reuse cached health')
-    assert.equal(speechCount, 2)
-    assert.deepEqual(capturedBody, {
+    assert.equal(capturedBodies.length, 2)
+    assert.deepEqual(capturedBodies[0], {
+      model: 'kokoro-v1.1-zh',
+      input: '<whisper>secret</whisper> <break 300ms> hello',
+      voice: '50',
+      speed: 1.25,
+      response_format: 'wav',
+    })
+    assert.deepEqual(capturedBodies[1], {
       model: 'kokoro-v1.1-zh',
       input: '第二句复用健康缓存',
       voice: 'zf_001',
@@ -208,6 +237,24 @@ describe('daemon-client: kokoro-daemon TTS synthesis, health TTL caching, and < 
     })
     assert.equal(res1.mime, 'audio/wav')
     assert.equal(res2.mime, 'audio/wav')
+  })
+
+  it('forwards <whisper>secret</whisper> <break 300ms> hello intact to POST /v1/audio/speech input', async () => {
+    let seenInput = ''
+    const client = new DaemonClient({
+      fetchImpl: async (url, init) => {
+        if (String(url).endsWith('/v1/health')) {
+          return makeDaemonHealthResponse()
+        }
+        seenInput = JSON.parse(String(init.body)).input
+        return new Response(makeFakeWavBytes(), {
+          status: 200,
+          headers: { 'Content-Type': 'audio/wav' },
+        })
+      },
+    })
+    await client.tts.synthesize('<whisper>secret</whisper> <break 300ms> hello')
+    assert.equal(seenInput, '<whisper>secret</whisper> <break 300ms> hello')
   })
 
   it('falls back to fallbackTts in < 1,000 ms WITHOUT timeoutMs override on hung port, port-conflict {}, 401, 404, 405, 503, and bad HTML payload', async () => {

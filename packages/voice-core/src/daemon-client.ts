@@ -91,13 +91,15 @@ export interface KokoroSpeakerPreset {
   gender: 'F' | 'M'
 }
 
-/** Curated Kokoro v1.1 multilingual speaker presets (numeric `0..102` speaker IDs also supported). */
+/** Curated Kokoro v1.1-zh speaker presets verified against `kokoro-int8-multi-lang-v1_1` (`0..102`). */
 export const KOKORO_DEFAULT_SPEAKERS: ReadonlyArray<KokoroSpeakerPreset> = [
-  { id: 'zf_001', sid: 45, label: 'Mandarin female (zf_001)', lang: 'zh', gender: 'F' },
-  { id: 'zm_010', sid: 55, label: 'Mandarin male (zm_010)', lang: 'zh', gender: 'M' },
-  { id: 'af_heart', sid: 3, label: 'English US female (af_heart)', lang: 'en-us', gender: 'F' },
-  { id: 'am_adam', sid: 11, label: 'English US male (am_adam)', lang: 'en-us', gender: 'M' },
-  { id: 'bf_emma', sid: 21, label: 'English UK female (bf_emma)', lang: 'en-gb', gender: 'F' },
+  { id: 'zf_001', sid: 3, label: 'Mandarin female (zf_001)', lang: 'zh', gender: 'F' },
+  { id: 'zf_xiaobei', sid: 48, label: 'Mandarin female (zf_xiaobei / zf_084)', lang: 'zh', gender: 'F' },
+  { id: 'zm_010', sid: 59, label: 'Mandarin male (zm_010)', lang: 'zh', gender: 'M' },
+  { id: 'zm_013', sid: 62, label: 'Mandarin deep male (zm_013)', lang: 'zh', gender: 'M' },
+  { id: 'af_maple', sid: 0, label: 'English US female (af_maple)', lang: 'en-us', gender: 'F' },
+  { id: 'af_sol', sid: 1, label: 'English US female (af_sol)', lang: 'en-us', gender: 'F' },
+  { id: 'bf_vale', sid: 2, label: 'English UK female (bf_vale)', lang: 'en-gb', gender: 'F' },
 ]
 
 export interface DaemonHealthResult {
@@ -511,14 +513,13 @@ export class DaemonClient {
       throw new DaemonClientError('aborted', 'Daemon TTS synthesis was aborted')
     }
 
-    const cleaned = stripEmotionTags(text).trim()
-    if (cleaned.length === 0) {
+    if (stripEmotionTags(text).trim().length === 0) {
       return { audio: new Uint8Array(0), mime: 'audio/wav' }
     }
 
     try {
       await this.ensureDaemonHealthy(options?.signal)
-      const result = await this.synthesizePrimary(cleaned, options)
+      const result = await this.synthesizePrimary(text, options)
       this.markHealthy()
       this.lastError = null
       return result
@@ -548,7 +549,7 @@ export class DaemonClient {
   }
 
   private async synthesizePrimary(
-    cleanedText: string,
+    rawText: string,
     options: TtsSynthOptions | undefined,
   ): Promise<TtsSynthResult> {
     const ac = new AbortController()
@@ -607,7 +608,7 @@ export class DaemonClient {
           headers,
           body: JSON.stringify({
             model: DEFAULT_KOKORO_MODEL,
-            input: cleanedText,
+            input: rawText,
             voice,
             speed: effectiveSpeed,
             response_format: 'wav',

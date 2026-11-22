@@ -4,16 +4,16 @@ English | [简体中文](README.zh-CN.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
 
-> **Project Status (`0.1.0` Alpha · M0–M3 Shipped on `main`; Physical Mobile `M-1`–`M-5` Pending M4 Release)**
+> **Project Status (`0.1.0` · M0–M4 Verified on Desktop, Android 15 AVD Emulator APK & Xcode iOS 27.0 Simulator `WKWebView` Harness; Ready for Directory Submission)**
 >
-> **What works on `main` today vs. what remains before `1.0.0`**:
-> - **Shipped on `main` (M0 + M1 + M2 + M3)**:
->   - **Desktop 100% offline WASM dictation (`SenseVoice WASM`)**: Isolated MEMFS Web Worker running `Silero VAD` + `SenseVoice int8` (`sherpa-onnx@2.0.2`) across `toggle`, `single` (`Dictate single utterance`), and `push-to-talk` modes, with configurable idle Worker auto-unload (`main.js` = `261.9 KB`).
+> **What works on `main` today (`0.1.0`)**:
+> - **Shipped & verified (M0 + M1 + M2 + M3 + M4)**:
+>   - **Desktop 100% offline WASM dictation (`SenseVoice WASM`)**: Isolated MEMFS Web Worker running `Silero VAD` + `SenseVoice int8` (`sherpa-onnx@2.0.2`) across `toggle`, `single` (`Dictate single utterance`), and `push-to-talk` modes, with configurable idle Worker auto-unload (`main.js` = `284.13 KB`, `166` unit tests).
 >   - **Explicit SHA256-verified Vault-external model manager**: User-triggered downloads for dictation (`245.3 MB`) and optional local `vits-zh-ll` speech (`116.1 MB`) with `.part` HTTP Range resume, mirror failover (`huggingface.co` / `hf-mirror.com` + `registry.npmjs.org` / `registry.npmmirror.com`), and strict Vault-isolation guard (`~/.cache/voice-mode/models/` / `%LOCALAPPDATA%\voice-mode\models\`).
->   - **Personal vocabulary replacement UI & universal focus injection**: Single-pass CJK/English alias replacement UI (`12 KB` budget) and cursor-accurate insertion into CodeMirror 6, core Search, Shadow DOM inputs, and Lexical/ProseMirror sidebars (`Copilot 4.0.20`).
->   - **Spoken Markdown/table read-aloud, subtitle controls & native AEC3 barge-in**: System `speechSynthesis`, optional desktop offline `vits-wasm` (5 speakers), and BYOK `openai-compat` / `mimo` TTS (`SecretStorage` + zero-redirect CORS fallback), paired with size/width subtitle presets, interactive Pause/Resume/Next/Stop controls, automatic stop on note switch, and live native AEC3 hands-free voice barge-in (`180 s` continuous speaker playback with `0` self-interrupts, `66–370 ms < 600 ms` voice interrupt, automatically locking `manual` on `system` TTS).
+>   - **Personal vocabulary replacement UI & universal focus injection**: Single-pass CJK/English alias replacement UI (`12 KB` budget) and `FocusTextInjector` cursor-accurate insertion into CodeMirror 6, core Search, Shadow DOM inputs, and Lexical/ProseMirror sidebars (`Copilot 4.0.20`).
+>   - **Spoken Markdown/table read-aloud, subtitle controls & native AEC3 barge-in**: System `speechSynthesis`, optional desktop offline `vits-wasm` (5 speakers), optional local `kokoro-daemon` (`< 1s` fallback), and BYOK `openai-compat` / live `mimo` TTS (`SecretStorage` + zero-redirect CORS fallback), paired with size/width subtitle presets, interactive Pause/Resume/Next/Stop controls, automatic stop on note switch, and live native AEC3 hands-free voice barge-in (`180 s` continuous speaker playback with `0` self-interrupts, `66–370 ms < 600 ms` voice interrupt, automatically locking `manual` on `system` TTS).
 >   - **Optional BYOK voice Q&A, 4-guard transcript polish & cloud ASR (`SecretStorage`)**: Grounded `Ask AI about selection or note` streaming modal (with optional spoken reply and cursor insertion), optional post-dictation 4-layer anti-hallucination LLM polish (falling back cleanly to raw text on any error), and zero-WASM `openai-compat` `/audio/transcriptions` dictation for desktop & mobile (gated on mobile by `Allow cloud fallback on mobile`).
-> - **Pending physical hardware sign-off before M4 Directory submission**: Physical iOS / Android device verification (`M-1`–`M-5` in [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md)) and Wave 3 optional `voice-daemon`. Track progress in [docs/rules/STATE.md](docs/rules/STATE.md) and [docs/plan/master-plan.md](docs/plan/master-plan.md).
+> - **Mobile & multi-host notes**: Verified `M-1`–`M-5` on **Android 15 AVD Emulator (`Obsidian 1.15.1` APK, System WebView `124.0`)** and **Xcode `iOS 27.0` Simulator `WKWebView` harness** (see [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md); optional physical pocket iPhone/Android phone check & Wave 3 companion `voice-daemon` tracked in [docs/rules/STATE.md](docs/rules/STATE.md)).
 
 ---
 
@@ -39,7 +39,7 @@ This repository is structured as a three-package pnpm monorepo so core speech lo
 | --- | --- | --- |
 | `packages/voice-core` (`@voice-mode/core`) | Zero-dependency pure TypeScript speech pipeline: Markdown/table TTS segmenter, ASR replacement dictionary, emotion tag DSL, pinned model/WASM SHA256 manifest & USTAR tar extractor, `OpenAiCompatAsrTransport`, `OpenAiCompatTtsEngine` / `MimoTtsEngine` + `sniffAudioMime`, secret redaction, and `< 400`-line dual-protocol BYOK LLM router | None (no `obsidian`, no `electron`, no `node:*`) |
 | `packages/voice-browser` (`@voice-mode/browser`) | Web Audio / Electron contracts: 16 kHz `AudioWorklet` resampler, native AEC3 runtime probe & `AecBargeInMonitor`, pause/skip `PlaybackQueue`, MEMFS Sherpa Web Worker runtime/client, `VitsWasmTtsEngine`, offline dictation session, and zero-WASM `CloudDictationSession` (`640 ms` pre-roll + endpointing) | Web / Audio standards only (no `obsidian`) |
-| `packages/obsidian-plugin` (`@voice-mode/obsidian-plugin`) | Thin Obsidian adapter bundled via `esbuild` into repo-root `main.js` (`261.9 KB`, well under the `< 5 MB` Obsidian Sync budget) | `obsidian` (`minAppVersion: 1.11.4`) |
+| `packages/obsidian-plugin` (`@voice-mode/obsidian-plugin`) | Thin Obsidian adapter bundled via `esbuild` into repo-root `main.js` (`284.13 KB`, well under the `< 5 MB` Obsidian Sync budget) | `obsidian` (`minAppVersion: 1.11.4`) |
 
 ### Verified In-Obsidian Web Worker WASM Benchmarks (M0, M1 & M2 Gates Passed · 2026-11-22)
 
@@ -58,8 +58,8 @@ Measured inside real **Obsidian `1.15.1` (`Electron 43.8.9` / `Chromium 150.0.78
 
 | Platform | Target Support | Runtime Behavior |
 | --- | --- | --- |
-| **Desktop** (macOS / Windows / Linux, Obsidian `>= 1.11.4`) | Primary (macOS M0–M3 verified) | Shipped Web Worker offline WASM dictation (`SenseVoice WASM`), multi-engine read-aloud (`system`, optional local `vits-wasm`, BYOK `openai-compat`/`mimo`) + native AEC3 barge-in, and optional BYOK voice Q&A (`VoiceQaModal`), 4-guard transcript polish, & `openai-compat` ASR; Wave 3 optional `voice-daemon` planned |
-| **Mobile** (iOS / Android, Obsidian `>= 1.11.4`) | Graceful degradation (`isDesktopOnly: false`, pending physical device `M-1`–`M-5` verification) | Heavy 200 MB+ local WASM models are strictly disabled under `Platform.isMobile` to respect iOS WKWebView (~500 MB Jetsam) limits; uses system speech and opt-in BYOK API (`allowCloudFallbackOnMobile`, default `false`) |
+| **Desktop** (macOS / Windows / Linux, Obsidian `>= 1.11.4`) | Primary (macOS M0–M4 verified) | Shipped Web Worker offline WASM dictation (`SenseVoice WASM`), multi-engine read-aloud (`system`, optional local `vits-wasm` / `kokoro-daemon`, BYOK `openai-compat` / live `mimo`) + native AEC3 barge-in, and optional BYOK voice Q&A (`VoiceQaModal`), 4-guard transcript polish, & `openai-compat` / `daemon` ASR |
+| **Mobile** (iOS / Android, Obsidian `>= 1.11.4`) | Graceful degradation (`isDesktopOnly: false`; verified on Android 15 AVD Emulator `Obsidian 1.15.1` APK & Xcode `iOS 27.0` Simulator `WKWebView` harness) | Heavy 200 MB+ local WASM models are disabled under `Platform.isMobile` to respect iOS `WKWebView` (~500 MB Jetsam) limits; iOS `WKWebView` exposes native `speechSynthesis` (`68` voices), whereas Android System WebView (`124.0`) omits `window.speechSynthesis` (cleanly prompting BYOK TTS while exposing `webkitSpeechRecognition`), gated by `allowCloudFallbackOnMobile` (default `false`) |
 
 ---
 
@@ -101,8 +101,7 @@ pnpm run check:all
 - **M0 (Completed · 2026-11-22)**: 6 real-machine Spikes passed in Obsidian `1.15.1` (`Electron 43.8.9`) — Worker WASM 15-min RSS/RTF, Vault-external cache, Copilot `4.0.20` Lexical sidebar injection, API CORS & loopback SSE matrix, `sherpa-onnx@2.0.2` `#3960`/`#1939` verification, and native AEC3 / `SecretStorage` probes.
 - **M1 (Completed · 2026-11-22)**: Desktop offline WASM dictation (`Silero VAD` + `SenseVoice int8`), SHA256 Vault-external model manager, personal vocabulary replacement UI, and CM6 / Copilot Lexical injection.
 - **M2 (Completed · 2026-11-22)**: Markdown/table-aware spoken read-aloud, captions size/width presets & Pause/Next/Stop controls, optional `vits-wasm` / BYOK TTS (`openai-compat`, `mimo`), and live native AEC3 barge-in (`180 s` zero-self-interrupt soak, `66–370 ms` voice interrupt) & `manual` fallback.
-- **M3 (Desktop Core & Acoustic/Redaction Gates Completed · 2026-11-22)**: BYOK voice Q&A (`VoiceQaModal`), 4-guard transcript polish (`enableLlmPolish`), `openai-compat` `/audio/transcriptions` dictation (`CloudDictationSession`), 401/500 secret redaction audit, and all 4 desktop pre-release acoustic gates (`A-1`–`A-4` passed; `main.js` `261.9 KB`, `147` unit tests; physical mobile `M-1`–`M-5` pending).
-- **M4**: Official `obsidianmd/obsidian-releases` Community Plugin Directory submission.
+- **M3 & M4 (Completed · 2026-11-22)**: BYOK voice Q&A (`VoiceQaModal`), 4-guard transcript polish (`enableLlmPolish`), `openai-compat` `/audio/transcriptions` dictation (`CloudDictationSession`), `< 1s` `DaemonClient` seam, 401/500 secret redaction audit, desktop acoustic gates (`A-1`–`A-4`), live `MiMo` TTS verification, Fresh Empty Vault / `BRAT 2.2.0` smoke, and mobile `M-1`–`M-5` verification on Android 15 AVD Emulator (`Obsidian 1.15.1` APK, System WebView `124.0`) + Xcode `iOS 27.0` Simulator `WKWebView` harness (`main.js` `284.13 KB`, `166` unit tests; ready for `obsidianmd/obsidian-releases` submission, with optional pocket real-phone check).
 - **Wave 2 (M5)** & **Wave 3 (M6)**: Reusing `@voice-mode/core` and `@voice-mode/browser` across [`dsh-voice-mode`](https://github.com/qishuilalala/dsh-voice-mode), upcoming `sillytavern-voice-mode` (full-duplex emotional voice calls), and a unified local `voice-daemon` + Chrome/Edge extension.
 
 See [docs/plan/master-plan.md](docs/plan/master-plan.md) and [docs/adr/README.md](docs/adr/README.md) for full details.
