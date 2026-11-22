@@ -1,3 +1,4 @@
+import { t } from "./i18n.ts";
 import {
   SentenceSegmenter,
   applyCorrectionGuards,
@@ -135,7 +136,7 @@ export function resolvePluginLlmConfig(options: ResolvePluginLlmOptions): LlmRou
   const secretId = getLlmSecretId(settings, settings.llmPresetId);
   const rawSecret = secretId ? secretStore.getSecret(secretId) : null;
   if (rawSecret instanceof Promise) {
-    throw new Error("Asynchronous secret store requires pre-resolved credentials.");
+    throw new Error(t("Asynchronous secret store requires pre-resolved credentials."));
   }
   const apiKey =
     typeof rawSecret === "string" && rawSecret.trim().length > 0 ? rawSecret.trim() : undefined;
@@ -156,7 +157,7 @@ export function resolvePluginLlmConfig(options: ResolvePluginLlmOptions): LlmRou
   const isLoopback = endpoint.url.startsWith("http://");
 
   if (isMobile && !settings.allowCloudFallbackOnMobile && !isLoopback) {
-    throw new Error("Cloud AI requests are disabled on mobile by privacy settings.");
+    throw new Error(t("Cloud AI requests are disabled on mobile by privacy settings."));
   }
 
   return config;
@@ -187,7 +188,7 @@ async function resolvePluginLlmConfigAsync(
   const isLoopback = endpoint.url.startsWith("http://");
 
   if (isMobile && !settings.allowCloudFallbackOnMobile && !isLoopback) {
-    throw new Error("Cloud AI requests are disabled on mobile by privacy settings.");
+    throw new Error(t("Cloud AI requests are disabled on mobile by privacy settings."));
   }
 
   return config;
@@ -284,7 +285,7 @@ export async function runVoiceQaStream(
 ): Promise<string> {
   const trimmedQuestion = question.trim();
   if (!trimmedQuestion) {
-    throw new Error("Enter or dictate a question first.");
+    throw new Error(t("Enter or dictate a question first."));
   }
 
   const llmConfig = await resolvePluginLlmConfigAsync({
@@ -332,14 +333,14 @@ export async function runVoiceQaStream(
 
 export function formatQaContextSummary(context: NoteQaContext): string {
   const formattedLen = context.text.length.toLocaleString("en-US");
-  const suffix = context.truncated ? ", truncated" : "";
+  const suffix = context.truncated ? t(", truncated") : "";
   if (context.scope === "selection") {
-    return `Context: selection (${formattedLen} chars${suffix})`;
+    return t("Context: selection ({0} chars{1})", formattedLen, suffix);
   }
   if (context.scope === "note") {
-    return `Context: active note (${formattedLen} chars${suffix})`;
+    return t("Context: active note ({0} chars{1})", formattedLen, suffix);
   }
-  return "Context: none (no active note)";
+  return t("Context: none (no active note)");
 }
 
 export class VoiceQaModal extends Modal {
@@ -366,7 +367,7 @@ export class VoiceQaModal extends Modal {
   }
 
   onOpen(): void {
-    this.setTitle("Ask AI about selection or note");
+    this.setTitle(t("Ask AI about selection or note"));
 
     const { contentEl } = this;
     contentEl.empty();
@@ -381,7 +382,7 @@ export class VoiceQaModal extends Modal {
       cls: "vm-qa-prompt",
       attr: {
         rows: "3",
-        placeholder: "Type or dictate a question about your selection or note...",
+        placeholder: t("Type or dictate a question about your selection or note..."),
       },
     });
     this.promptEl = prompt;
@@ -391,7 +392,7 @@ export class VoiceQaModal extends Modal {
     const rightActions = actions.createDiv({ cls: "vm-qa-actions-right" });
 
     const dictateBtn = leftActions.createEl("button", {
-      text: "Dictate question",
+      text: t("Dictate question"),
     });
     dictateBtn.type = "button";
     this.dictateBtnEl = dictateBtn;
@@ -403,12 +404,12 @@ export class VoiceQaModal extends Modal {
       type: "checkbox",
     });
     readCheckbox.checked = true;
-    readToggleLabel.createSpan({ text: "Read answer aloud" });
+    readToggleLabel.createSpan({ text: t("Read answer aloud") });
     this.readAloudCheckboxEl = readCheckbox;
 
     const submitBtn = rightActions.createEl("button", {
       cls: "mod-cta",
-      text: "Ask",
+      text: t("Ask"),
     });
     submitBtn.type = "button";
     this.submitBtnEl = submitBtn;
@@ -418,11 +419,11 @@ export class VoiceQaModal extends Modal {
 
     const footer = contentEl.createDiv({ cls: "vm-qa-footer vm-qa-hidden" });
     const insertBtn = footer.createEl("button", {
-      text: "Insert at cursor",
+      text: t("Insert at cursor"),
     });
     insertBtn.type = "button";
     const copyBtn = footer.createEl("button", {
-      text: "Copy answer",
+      text: t("Copy answer"),
     });
     copyBtn.type = "button";
     this.footerEl = footer;
@@ -461,9 +462,9 @@ export class VoiceQaModal extends Modal {
       }
       const inserted = this.callbacks.onInsertAtCursor(this.answerText);
       if (inserted) {
-        new Notice("Inserted answer at cursor.");
+        new Notice(t("Inserted answer at cursor."));
       } else {
-        new Notice("Open a Markdown note to insert the answer.");
+        new Notice(t("Open a Markdown note to insert the answer."));
       }
     });
 
@@ -495,12 +496,12 @@ export class VoiceQaModal extends Modal {
 
   private resetDictationButtonState(): void {
     this.dictatingIntoModal = false;
-    this.dictateBtnEl?.setText("Dictate question");
+    this.dictateBtnEl?.setText(t("Dictate question"));
   }
 
   private async handleDictateQuestionClick(): Promise<void> {
     if (this.dictatingIntoModal && this.callbacks.isDictating?.()) {
-      this.dictateBtnEl?.setText("Dictate question");
+      this.dictateBtnEl?.setText(t("Dictate question"));
       try {
         await this.callbacks.onDictateQuestion(
           (text) => {
@@ -520,7 +521,7 @@ export class VoiceQaModal extends Modal {
     }
 
     this.dictatingIntoModal = true;
-    this.dictateBtnEl?.setText("Stop dictation");
+    this.dictateBtnEl?.setText(t("Stop dictation"));
     try {
       await this.callbacks.onDictateQuestion(
         (text) => {
@@ -560,7 +561,7 @@ export class VoiceQaModal extends Modal {
       this.callbacks.onStopReadAloud();
     }
     this.setStreamingUi(false);
-    this.showStatus("Stopped.", false);
+    this.showStatus(t("Stopped."), false);
   }
 
   private setStreamingUi(streaming: boolean): void {
@@ -569,10 +570,10 @@ export class VoiceQaModal extends Modal {
     }
     if (streaming) {
       this.submitBtnEl.removeClass("mod-cta");
-      this.submitBtnEl.setText("Stop");
+      this.submitBtnEl.setText(t("Stop"));
     } else {
       this.submitBtnEl.addClass("mod-cta");
-      this.submitBtnEl.setText("Ask");
+      this.submitBtnEl.setText(t("Ask"));
     }
   }
 
@@ -598,7 +599,7 @@ export class VoiceQaModal extends Modal {
   private async submitQuestion(): Promise<void> {
     const question = this.promptEl?.value.trim() ?? "";
     if (!question) {
-      new Notice("Enter or dictate a question first.");
+      new Notice(t("Enter or dictate a question first."));
       this.promptEl?.focus();
       return;
     }
@@ -615,7 +616,7 @@ export class VoiceQaModal extends Modal {
     this.answerEl?.addClass("vm-qa-hidden");
     this.footerEl?.addClass("vm-qa-hidden");
     this.setStreamingUi(true);
-    this.showStatus("Thinking...", false);
+    this.showStatus(t("Thinking..."), false);
 
     try {
       const fullAnswer = await runVoiceQaStream(question, this.context, {
@@ -650,15 +651,15 @@ export class VoiceQaModal extends Modal {
         this.answerEl?.setText(fullAnswer);
         this.footerEl?.removeClass("vm-qa-hidden");
       } else {
-        this.showStatus("Model returned an empty response.", false);
+        this.showStatus(t("Model returned an empty response."), false);
       }
     } catch (err) {
       if (controller.signal.aborted) {
         return;
       }
       const message = redactSecrets(err instanceof Error ? err.message : String(err));
-      this.showStatus(`AI request failed: ${message}`, true);
-      new Notice(`AI request failed: ${message}`);
+      this.showStatus(t("AI request failed: {0}", message), true);
+      new Notice(t("AI request failed: {0}", message));
     } finally {
       if (this.streamAbortController === controller) {
         this.streamAbortController = null;
@@ -676,9 +677,9 @@ export class VoiceQaModal extends Modal {
     }
     try {
       await activeWindow.navigator.clipboard.writeText(this.answerText);
-      new Notice("Copied answer to clipboard.");
+      new Notice(t("Copied answer to clipboard."));
     } catch {
-      new Notice("Could not copy answer to clipboard.");
+      new Notice(t("Could not copy answer to clipboard."));
     }
   }
 }

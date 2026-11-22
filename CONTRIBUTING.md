@@ -24,11 +24,12 @@ pnpm run check:all
 
 `pnpm run check:all` runs:
 
-1. `pnpm run typecheck` — TypeScript strict check across all three packages
-2. `pnpm run lint` — ESLint including `eslint-plugin-obsidianmd`
-3. `pnpm run test` — Node built-in test runner across all three packages
-4. `pnpm run build` — Production `esbuild` bundle to `main.js`
-5. `pnpm run check:release` — Manifest, version alignment, and release artifact checks
+1. `pnpm run build:packages` — Compile the shared packages
+2. `pnpm run typecheck` — TypeScript strict check across all three packages
+3. `pnpm run lint` — ESLint including `eslint-plugin-obsidianmd`
+4. `pnpm run test` — Node built-in test runner across all three packages
+5. `pnpm run build` — Production `esbuild` bundle to `main.js`
+6. `pnpm run check:release` — Manifest, version alignment, and release artifact checks
 
 ## Engineering & Review Standards / 工程与评审纪律
 
@@ -40,6 +41,15 @@ pnpm run check:all
   - Store secrets exclusively in Obsidian `SecretStorage`, never in `data.json`.
   - Keep `main.js` well under the 5 MB Obsidian Sync budget and never commit `main.js`, model binaries, recordings, or credentials to git.
 - **Focused PRs**: One logical change per PR with targeted tests that reproduce bugs before fixing them.
+
+### Keeping related changes together / 配套维护
+
+| Change | What to update and verify / 应同步更新和验证 |
+| --- | --- |
+| Architecture / 架构边界 | Update the relevant [architecture decision](docs/adr/README.md) when package dependencies or host responsibilities change. 包依赖或宿主职责有变时，在对应决策中记录原因和影响。 |
+| Commands and settings / 命令与设置 | Check both English and Simplified Chinese labels in the UI and match the steps in both READMEs. 核对两种语言的实际入口、显示名称及操作顺序。 |
+| Shared packages / 共享包 | Record the four revisions being checked and run the full [archive comparison](docs/adr/0005-multi-repo-package-sharing-and-daemon-seam.md) against those checkouts. 记录母仓和三个下游的提交，用严格模式验证五份归档。 |
+| Review / 复核 | Choose an independent check that exercises the change and record its result and environment in the PR. 按影响选择复核方式，例如让另一位贡献者从空笔记库走一遍安装步骤，或用另一宿主验证音频行为。 |
 
 ## Releases / 发布说明
 

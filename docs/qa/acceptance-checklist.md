@@ -1,6 +1,6 @@
 # 验收检查清单（QA Acceptance Checklist）
 
-> **铁律**：自动化单测（`pnpm run test`）与构建门禁（`pnpm run check:all`）仅证明纯逻辑、类型与打包契约正常，**绝不能替代真机声学、Electron 内存与移动端运行时验收**。实测环境严格区分桌面真机（`Desktop Real`）、**`Android 15 AVD Emulator (Obsidian 1.15.1 APK, System WebView 124.0)`**、**`Xcode iOS 27.0 Simulator WKWebView harness`** 与可选口袋物理手机检查（绝不将模拟器或 `WKWebView` 测试基座冒充 App Store iOS 物理真机）。
+> 自动化检查验证类型、逻辑与打包。下文的声学和内存数据来自各行标明的环境。Android 15 模拟器加载了 Obsidian 1.15.1 APK，iOS 27 模拟器加载了独立的 WKWebView 测试程序。这里没有实体手机或 iOS App Store 客户端的验收记录。
 
 ---
 
@@ -79,7 +79,7 @@
 
 > **诚实边界说明**：
 > 1. **Android 端（`Android 15 AVD Emulator (Obsidian 1.15.1 APK, System WebView 124.0)`）**：已在 Apple HVF 原生 `arm64-v8a` Android 15（`SDK 35`，Build `AE3A.240806.043`）AVD 模拟器内安装官方 **`Obsidian-1.15.1.apk`（`md.obsidian`，`com.google.android.webview` `Chrome/124.0.6367.219`，`V8 12.4.254.16`）** 完成 `M-1`–`M-5` 全链路验证。实测确认了一项重要的 Android 系统 WebView 差异：Android System WebView 原生暴露 `webkitSpeechRecognition`（`typeof === "function"`）与 `HTMLAudioElement`，但**未暴露 `window.speechSynthesis`（`typeof === "undefined"`）**；调用 `system` 朗读会干净弹出可读提示引导启用 BYOK TTS 且零未捕获异常，开启 BYOK TTS（`openai-compat` / `mimo`）即可通过 `HTMLAudioElement` 正常连续朗读。
-> 2. **iOS 端（`Xcode iOS 27.0 Simulator WKWebView harness`）**：因官方 iOS App Store IPA 含 FairPlay 加密无法装入 Simulator，已在 **Xcode `iOS 27.0` Simulator `WKWebView` harness（`iPhone 18 Pro` · `5388526A-B0DD-4C59-93C5-5735C70B6D59`，`MobileSafari` `AppleWebKit/605.1.15`）** 及本机 `JavaScriptCore` 完成 `68` 种原生系统语音（含 `婷婷 zh-CN`、`美嘉 zh-TW` 等 `2` 种中文与 `25` 种英文语音）、`PlaybackQueue`、`FocusTextInjector`、`CloudDictationSession` 与 `main.js` 移动生命周期实测；口袋物理 iPhone/Android 手机上的随身复核保留为可选真机检查，绝不将模拟器或 `WKWebView` harness 表述为物理手机或 iOS App Store 客户端实机。
+> 2. **iOS 端（`Xcode iOS 27.0 Simulator WKWebView harness`）**：因官方 iOS App Store IPA 含 FairPlay 加密无法装入 Simulator，已在 **Xcode `iOS 27.0` Simulator `WKWebView` harness（`iPhone 18 Pro` · `5388526A-B0DD-4C59-93C5-5735C70B6D59`，`MobileSafari` `AppleWebKit/605.1.15`）** 及本机 `JavaScriptCore` 完成 `68` 种原生系统语音（含 `婷婷 zh-CN`、`美嘉 zh-TW` 等 `2` 种中文与 `25` 种英文语音）、`PlaybackQueue`、`FocusTextInjector`、`CloudDictationSession` 与 `main.js` 移动生命周期实测；实体 iPhone 和 Android 手机的测试结果可在取得记录后另行补充。
 
 | 编号 | 验证项 | iOS（`Xcode iOS 27.0 Simulator WKWebView harness`） | Android（`Android 15 AVD Emulator · Obsidian 1.15.1 APK`） | 预期行为 | 当前状态与实测记录（2026-11-22） |
 | --- | --- | --- | --- | --- | --- |
@@ -91,7 +91,9 @@
 
 ---
 
-## 4. M5 & M6 Cross-Host Matrix & Joint Daemon E2E 验收记录（已闭环 · 2026-11-22）
+## 4. M5 与 M6 跨仓验收及本机语音服务联调（2026-11-22）
+
+下表保留首次验收时的版本、复用率和耗时。后续共享包更新的核对方法见 [ADR-0005](../adr/0005-multi-repo-package-sharing-and-daemon-seam.md)。
 
 | 波次 / 模块 | 仓库与基线 | 实测宿主与场景 | 量化指标与实测结果 | 状态 |
 | --- | --- | --- | --- | --- |

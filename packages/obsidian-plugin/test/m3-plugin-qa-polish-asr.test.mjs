@@ -4,6 +4,9 @@ import { describe, it } from "node:test";
 
 const MOCK_OBSIDIAN_MODULE_SOURCE = `
 export const capturedNotices = [];
+let language = "en";
+export function getLanguage() { return language; }
+export function setMockLanguage(value) { language = value; }
 
 export class Notice {
   constructor(message, timeout) {
@@ -278,7 +281,7 @@ registerHooks({
   },
 });
 
-const { capturedNotices } = await import("obsidian");
+const { capturedNotices, setMockLanguage } = await import("obsidian");
 const { createObsidianFetchWithCorsFallback } = await import("../src/obsidian-http.ts");
 const {
   detectRuntimeCapabilities,
@@ -359,6 +362,92 @@ function findButtonByText(root, text) {
   }
   return null;
 }
+
+describe("Obsidian interface language", () => {
+  it("uses Simplified Chinese only for matching app locales and preserves interpolated values", async () => {
+    const { isSimplifiedChinese, t } = await import("../src/i18n.ts");
+    for (const locale of ["zh", "zh-CN", "zh-SG", "zh_Hans", "zh-Hans-CN"]) {
+      assert.equal(isSimplifiedChinese(locale), true, locale);
+    }
+    for (const locale of ["en", "fr", "zh-TW", "zh-HK", "zh-Hant-CN", "zhx", ""]) {
+      assert.equal(isSimplifiedChinese(locale), false, locale);
+    }
+
+    const providerError = "HTTP 503 {0} $&";
+    try {
+      setMockLanguage("zh-CN");
+      assert.equal(t("AI request failed: {0}", providerError), "AI 请求失败：" + providerError);
+      setMockLanguage("zh-TW");
+      assert.equal(t("AI request failed: {0}", providerError), "AI request failed: " + providerError);
+    } finally {
+      setMockLanguage("en");
+    }
+  });
+
+  it("uses Chinese in commands, notices, both settings views and the question dialog", async (test) => {
+    setMockLanguage("zh");
+    test.after(() => setMockLanguage("en"));
+    const mockWindow = Object.create(globalThis);
+    for (const [key, value] of Object.entries({
+      window: mockWindow,
+      activeWindow: mockWindow,
+      activeDocument: { body: null, activeElement: null },
+    })) {
+      const old = Object.getOwnPropertyDescriptor(globalThis, key);
+      Object.defineProperty(globalThis, key, { configurable: true, value });
+      test.after(() => {
+        if (old) Object.defineProperty(globalThis, key, old);
+        else delete globalThis[key];
+      });
+    }
+    const app = {
+      vault: { adapter: {} },
+      workspace: { on: () => ({}), getActiveViewOfType: () => null },
+    };
+    const plugin = new VoiceModePlugin(app, { id: "voice-mode" });
+    await plugin.onload();
+    test.after(() => plugin.onunload());
+    plugin.settings.dictationLanguage = "en-US";
+
+    const commands = Object.fromEntries(plugin._commands.map((c) => [c.id, c.name]));
+    assert.equal(Object.keys(commands).length, 8);
+    assert.equal(commands["toggle-dictation"], "开始或停止听写");
+    assert.equal(commands["ask-ai-about-note"], "就选中文本或当前笔记向 AI 提问");
+    assert.ok(Object.values(commands).every((name) => /\p{Script=Han}/u.test(name)));
+    await plugin.readSelectionOrNoteAloud();
+    assert.equal(capturedNotices.at(-1), "请先打开要朗读的 Markdown 笔记。");
+
+    const tab = new VoiceModeSettingTab(app, plugin);
+    const groups = tab.getSettingDefinitions();
+    assert.deepEqual(groups.map((group) => group.heading), ["语音输入", "朗读", "AI 模型", "模型与隐私"]);
+    const engine = groups[0].items.find((item) => item.control?.key === "asrEngine");
+    assert.equal(engine.name, "识别引擎");
+    assert.equal(engine.control.options["sensevoice-wasm"], "SenseVoice WASM（桌面离线）");
+    const providers = groups[2].items.find((item) => item.control?.key === "llmPresetId");
+    assert.equal(providers.control.options["volcengine-doubao"], "火山方舟（豆包）");
+    assert.equal(providers.control.options.openai, "OpenAI");
+    assert.equal(tab.getControlValue("dictationLanguage"), "en-US");
+    for (const group of groups) {
+      for (const item of group.items) {
+        assert.match(item.name, /\p{Script=Han}/u);
+        if (item.desc) assert.match(item.desc, /\p{Script=Han}/u);
+      }
+    }
+    tab.display();
+    assert.ok(findButtonByText(tab.containerEl, "下载或校验模型"));
+    assert.ok(findButtonByText(tab.containerEl, "添加规则"));
+
+    const modal = new VoiceQaModal(app, { scope: "selection", text: "abc", truncated: true }, {});
+    modal.open();
+    assert.equal(modal.titleEl.textContent, commands["ask-ai-about-note"]);
+    assert.equal(findChildByClass(modal.contentEl, "vm-qa-context").textContent, "上下文：选中文本（3 个字符，已截断）");
+    assert.ok(findButtonByText(modal.contentEl, "口述问题"));
+    assert.ok(findButtonByText(modal.contentEl, "复制回答"));
+    findButtonByText(modal.contentEl, "提问").trigger("click");
+    assert.equal(capturedNotices.at(-1), "请先输入或口述问题。");
+    modal.close();
+  });
+});
 
 describe("settings.ts M3 fields (asrModel, enableLlmPolish, zero-secret guarantee)", () => {
   it("defaults asrModel to '' and enableLlmPolish to false, normalizes safely, and strips accidental secrets", () => {

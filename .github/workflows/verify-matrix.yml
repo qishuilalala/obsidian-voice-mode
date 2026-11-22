@@ -1,0 +1,77 @@
+name: Verify companion archives
+
+on:
+  workflow_dispatch:
+    inputs:
+      sillytavern_sha:
+        description: SillyTavern companion commit (full SHA)
+        required: true
+        type: string
+      daemon_sha:
+        description: Daemon companion commit (full SHA)
+        required: true
+        type: string
+      dsh_sha:
+        description: DSH companion commit (full SHA)
+        required: true
+        type: string
+
+permissions:
+  contents: read
+
+jobs:
+  verify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - name: Require three pinned companion commits
+        shell: bash
+        env:
+          SILLYTAVERN_SHA: ${{ inputs.sillytavern_sha }}
+          DAEMON_SHA: ${{ inputs.daemon_sha }}
+          DSH_SHA: ${{ inputs.dsh_sha }}
+        run: |
+          for sha in "$SILLYTAVERN_SHA" "$DAEMON_SHA" "$DSH_SHA"; do
+            if [[ ! "$sha" =~ ^[0-9a-fA-F]{40}$ ]]; then
+              echo "::error::Each companion commit must be a full 40-character hexadecimal SHA."
+              exit 1
+            fi
+          done
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          ref: ${{ github.sha }}
+          path: obsidian-voice-mode
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: qishuilalala/sillytavern-voice-mode
+          ref: ${{ inputs.sillytavern_sha }}
+          path: sillytavern-voice-mode
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: qishuilalala/voice-mode-daemon
+          ref: ${{ inputs.daemon_sha }}
+          path: voice-mode-daemon
+          persist-credentials: false
+
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: qishuilalala/dsh-voice-mode
+          ref: ${{ inputs.dsh_sha }}
+          path: dsh-voice-mode
+          persist-credentials: false
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Build and compare all companion archives
+        working-directory: obsidian-voice-mode
+        run: |
+          npm install -g pnpm@12.21.0 --force
+          pnpm install --frozen-lockfile
+          pnpm run verify:matrix --require-all ..

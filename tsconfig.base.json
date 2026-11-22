@@ -15,7 +15,9 @@
     "resolveJsonModule": true,
     "paths": {
       "@voice-mode/core": ["./packages/voice-core/src/index.ts"],
-      "@voice-mode/browser": ["./packages/voice-browser/src/index.ts"]
+      "@voice-mode/core/*": ["./packages/voice-core/src/*.ts"],
+      "@voice-mode/browser": ["./packages/voice-browser/src/index.ts"],
+      "@voice-mode/browser/*": ["./packages/voice-browser/src/*.ts"]
     }
   }
 }

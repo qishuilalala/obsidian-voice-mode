@@ -34,6 +34,9 @@ jobs:
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
+      - name: Build production plugin bundle from a clean checkout
+        run: pnpm run build
+
       - name: Build shared workspace packages
         run: pnpm run build:packages
 
@@ -45,9 +48,6 @@ jobs:
 
       - name: Run unit tests
         run: pnpm run test
-
-      - name: Build production plugin bundle
-        run: pnpm run build
 
       - name: Release & manifest gate
         run: pnpm run check:release

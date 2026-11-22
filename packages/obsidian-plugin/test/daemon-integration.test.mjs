@@ -4,6 +4,7 @@ import { describe, it } from "node:test";
 
 const MOCK_OBSIDIAN_SOURCE = `
 export const capturedNotices = [];
+export function getLanguage() { return "en"; }
 export const secretComponentInstances = [];
 
 export class Notice {
