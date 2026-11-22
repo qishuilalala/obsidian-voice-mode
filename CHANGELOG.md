@@ -6,7 +6,15 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ## [0.1.0] - 2026-11-22
 
+### Fixed
+
+- Read-aloud now starts promptly when a streamed reply begins with a Markdown horizontal rule. A later rule no longer causes intervening prose to disappear. Leading Obsidian properties are handled consistently for full notes, selections and streamed text.
+
 ### Added
+
+- Browser hosts can use the shared Web Speech engine and HTML audio sink for playback, timed breaks and prosody.
+- Shared packages expose individual modules for bundlers. `pnpm run verify:matrix` rebuilds and compares the packaged bytes with the archives used by each available companion repository.
+- The mobile CDP probe can discover local debugging targets and reconnect to the selected vault after a desktop mobile-emulation reload. Run `node scripts/mobile-cdp-probe.mjs --selftest` for its offline checks.
 
 - **Desktop 100% offline WASM dictation (`SenseVoice WASM`)**:
   - Isolated `MEMFS` Web Worker runtime and client (`@voice-mode/browser`: `sherpa-worker-runtime`, `sherpa-worker-client`, `dictation-session`) running `Silero VAD` + `SenseVoice int8` (`sherpa-onnx@2.0.2`) with zero-copy `ArrayBuffer` transfer, post-init `FS.unlink` heap reclamation, `640 ms` pre-roll ring buffering, `toggle` / `single` / `push-to-talk` dictation modes, `Dictate single utterance` command, and configurable idle Worker auto-unload.

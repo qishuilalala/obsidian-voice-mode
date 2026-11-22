@@ -274,6 +274,12 @@ describe("editor-bridge focus routing, Shadow DOM / input insertion, and frontma
       replaceSelection: () => {},
     };
     assert.deepEqual(extractReadableText(selectAllEditor), ["Selected body line."]);
+
+    const multipleRules = "---\ntitle: Sample\n---\n---\nTime: 12\n---\nLast sentence.";
+    assert.deepEqual(extractReadableText({ ...fullEditor, getValue: () => multipleRules }), [
+      "Time: 12",
+      "Last sentence.",
+    ]);
   });
 
   it("prioritizes CM6 MarkdownView editor over generic contenteditable fallback", () => {

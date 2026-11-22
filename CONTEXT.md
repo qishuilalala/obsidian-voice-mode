@@ -5,7 +5,7 @@
 ## 项目定位与当前阶段
 
 - **产品**：Obsidian 官方插件（ID `voice-mode`，Repo `qishuilalala/obsidian-voice-mode`，`minAppVersion: 1.11.4`，`isDesktopOnly: false`），也是跨平台 Voice Mode 系列开源矩阵的首发母仓（与 [`sillytavern-voice-mode`](https://github.com/qishuilalala/sillytavern-voice-mode)、[`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon) 及 [`dsh-voice-mode`](https://github.com/qishuilalala/dsh-voice-mode) 共用 `@voice-mode/{core,browser}`）。
-- **当前真实状态（`0.1.0` · M0–M6 全矩阵闭环验证通过；发布资产与首发文案包已在本地就绪，遵守“先不发”暂缓外部发布）**：已完成三包编译产物与治理体系（`T1`）、桌面离线 WASM 听写（`M1`）、Markdown/表格降噪朗读 + 原生 AEC3 打断（`M2`）、BYOK 流式问答 + 4 重护栏润色 + 云端 ASR + 声学/脱敏门禁（`M3`）、Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）`M-1`–`M-5` + Xcode `iOS 27.0` Simulator `WKWebView` 测试基座 + 实网 `MiMo` TTS + 全新空 Vault / `BRAT 2.2.0` 冒烟 + 15s 双画幅 Demo（`M4`），以及 **Wave 2 `sillytavern-voice-mode@0.1.0`（`M5`）与 Wave 3 `voice-mode-daemon@0.1.0` + 真实 Obsidian `kokoro-daemon` 联调 E2E + `dsh-voice-mode` 内核反哺统一（`M6`）**（`main.js` = `284.13 KB`，`llm-router.ts` `396` 行，全仓 `166` 项单测全绿）。
+- **当前真实状态（`0.1.0` · M0–M6 全矩阵闭环验证通过；发布资产与首发文案包已在本地就绪，遵守“先不发”暂缓外部发布）**：已完成三包编译产物与治理体系（`T1`）、桌面离线 WASM 听写（`M1`）、Markdown/表格降噪朗读 + 原生 AEC3 打断（`M2`）、BYOK 流式问答 + 4 重护栏润色 + 云端 ASR + 声学/脱敏门禁（`M3`）、Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）`M-1`–`M-5` + Xcode `iOS 27.0` Simulator `WKWebView` 测试基座 + 实网 `MiMo` TTS + 全新空 Vault / `BRAT 2.2.0` 冒烟 + 15s 双画幅 Demo（`M4`），以及 **Wave 2 `sillytavern-voice-mode@0.1.0`（`M5`）与 Wave 3 `voice-mode-daemon@0.1.0` + 真实 Obsidian `kokoro-daemon` 联调 E2E + `dsh-voice-mode` 内核反哺统一（`M6`）**（`main.js` = `284.40 KiB`，`llm-router.ts` `396` 行，全仓 `170` 项单测全绿）。
 
 ## 三包架构与硬依赖边界
 
@@ -26,7 +26,7 @@
 ## 安全与 Obsidian 商店合规红线
 
 - **密钥隔离与 CORS 安全兜底（ADR-0003）**：全量 BYOK 密钥仅经 Obsidian `app.secretStorage`（`>= 1.11.4`）按预设/引擎隔离存储，**绝不写入 `data.json`**；`obsidian-http.ts` 优先走 `fetch`（`redirect: 'error'`），遇 `app://obsidian.md` CORS 拦截时桌面端回退零重定向 Node 流、移动端回退 `requestUrl`；错误体先脱敏再截断。
-- **Sync 体积与模型隔离（ADR-0004）**：`main.js` 硬上限 `< 5 MB`（当前 `284.13 KB`）；离线模型仅由用户显式点击下载，经逐跳 HTTPS 域名白名单 + 固定 SHA256 校验落盘于 **Vault 之外**（`~/.cache/voice-mode/models/` / `%LOCALAPPDATA%\voice-mode\models\`）。
+- **Sync 体积与模型隔离（ADR-0004）**：`main.js` 硬上限 `< 5 MB`（当前 `284.40 KiB`）；离线模型仅由用户显式点击下载，经逐跳 HTTPS 域名白名单 + 固定 SHA256 校验落盘于 **Vault 之外**（`~/.cache/voice-mode/models/` / `%LOCALAPPDATA%\voice-mode\models\`）。
 - **许可证纯净与发布格式**：MIT 仓库与 GitHub Release **严禁打包**任何模型权重、WASM 二进制、`.mp4` 视频或 GPL-3.0 `espeak-ng-data`；零遥测、零启动外联；Tag 严禁带 `v` 前缀（如 `0.1.0`），Release 仅上传 `main.js`、`manifest.json`、`styles.css`。
 
 ## 常用命令
@@ -34,9 +34,11 @@
 ```bash
 pnpm install --frozen-lockfile  # 安装锁定依赖（Node >= 22.18.0，CI 固定 Node 22 + pnpm@12.21.0）
 pnpm run build:packages         # 编译 @voice-mode/core 与 @voice-mode/browser 至 dist/*.js + .d.ts
+pnpm run verify:matrix          # 重建并逐个核对相邻三仓的 5 个 vendor 压缩包，可传入检出目录的共同父目录
+node scripts/mobile-cdp-probe.mjs --selftest  # 离线验证调试目标发现与页面重连；--discover 枚举本机目标
 pnpm run typecheck              # 根级与三包严格 TypeScript 类型检查
 pnpm run lint                   # ESLint（含 eslint-plugin-obsidianmd 与跨包边界规则）
-pnpm run test                   # 三包 Node 内置测试套件（166 项）
+pnpm run test                   # 三包 Node 内置测试套件（170 项）
 pnpm run build                  # esbuild 生产打包生成根目录 main.js
 pnpm run check:release          # 清单/版本/体积/边界/密钥与移动净室全检
 pnpm run check:all              # 以上完整门禁顺序执行（PR 与发版前必跑）

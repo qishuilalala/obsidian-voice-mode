@@ -6,7 +6,9 @@
 
 - **版本基线**：`0.1.0`（**M0–M6 全波次已闭环验证**：覆盖桌面真机、实网 `MiMo` TTS、全新空 Vault / `BRAT 2.2.0` 冒烟、Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）`M-1`–`M-5`、Xcode `iOS 27.0` Simulator `WKWebView` 测试基座、15s 横竖屏 Demo 与首发包，以及跨仓 Wave 2 [`sillytavern-voice-mode@0.1.0`](https://github.com/qishuilalala/sillytavern-voice-mode)、Wave 3 [`voice-mode-daemon@0.1.0`](https://github.com/qishuilalala/voice-mode-daemon) 与真实 Obsidian `kokoro-daemon` 联调 E2E、[`dsh-voice-mode`](https://github.com/qishuilalala/dsh-voice-mode) 内核反哺统一；本仓 `0.1.0` 当前遵守 **“先不发”** 约束，暂缓推送公开 Release Tag、暂缓向 `obsidianmd/obsidian-releases` 提 PR 及发布外部社媒帖）。
 - **仓库身份**：`qishuilalala/obsidian-voice-mode`（Obsidian 插件 ID `voice-mode`，`minAppVersion: 1.11.4`，`isDesktopOnly: false`）。
-- **工具链与真机宿主基线**：`obsidian@1.14.4`（类型）、`eslint-plugin-obsidianmd@0.6.0`、`esbuild@0.25.12`、`typescript@5.9.3`、Node `>= 22.18.0`；桌面真机为 macOS `27.2.1`（Apple M2 Max / 32 GB）上的 **Obsidian `1.15.1`（Electron `43.8.9` / Chromium `150.0.7871.250`）**；移动实测覆盖 **Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）** 与 **Xcode `iOS 27.0` Simulator `WKWebView` 测试基座（`iPhone 18 Pro` / `AppleWebKit/605.1.15`）**；当前构建产物 `main.js` 为 **`284.13 KB`（`290,948 B`）**，`llm-router.ts` **`396` 行**（`< 400` 行预算），全仓 **`166` 项单测**（`76 core + 42 browser + 48 plugin`）全绿。
+- **工具链与真机宿主基线**：`obsidian@1.14.4`（类型）、`eslint-plugin-obsidianmd@0.6.0`、`esbuild@0.25.12`、`typescript@5.9.3`、Node `>= 22.18.0`；桌面真机为 macOS `27.2.1`（Apple M2 Max / 32 GB）上的 **Obsidian `1.15.1`（Electron `43.8.9` / Chromium `150.0.7871.250`）**；移动实测覆盖 **Android 15 AVD 模拟器（`Obsidian 1.15.1` APK，System WebView `124.0`）** 与 **Xcode `iOS 27.0` Simulator `WKWebView` 测试基座（`iPhone 18 Pro` / `AppleWebKit/605.1.15`）**；当前构建产物 `main.js` 为 **`284.40 KiB`（`291,225 B`）**，`llm-router.ts` **`396` 行**（`< 400` 行预算），全仓 **`170` 项单测**（`80 core + 42 browser + 48 plugin`）全绿。
+
+- **开源与分发**：Chrome/Edge 扩展沿用 MIT。三个下游检出就位时，母仓运行 `pnpm run verify:matrix` 从源码重打包并比对五份归档。SillyTavern 使用共享浏览器播放实现后，其生产包的共享代码占比为 `76.28%`。
 
 ## 已落地 vs 外部待触发边界（诚实边界）
 

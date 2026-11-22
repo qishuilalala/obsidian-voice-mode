@@ -1,0 +1,5 @@
+# pnpm pack includes the root license verbatim. TypeScript can retain source
+# newlines inside comments and template literals in the shipped dist files.
+/LICENSE text eol=lf
+/packages/voice-core/src/**/*.ts text eol=lf
+/packages/voice-browser/src/**/*.ts text eol=lf

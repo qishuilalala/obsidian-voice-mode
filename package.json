@@ -15,6 +15,7 @@
   },
   "scripts": {
     "build:packages": "node scripts/build-packages.mjs",
+    "verify:matrix": "node scripts/verify-matrix-tarballs.mjs",
     "build": "node esbuild.config.mjs production",
     "dev": "node esbuild.config.mjs",
     "typecheck": "tsc -p tsconfig.json --noEmit && pnpm -r run typecheck",
