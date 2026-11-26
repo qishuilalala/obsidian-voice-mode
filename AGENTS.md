@@ -1,0 +1,26 @@
+# AGENTS.md — obsidian-voice-mode（母仓）
+
+> 面向在本仓库工作的 AI 编码代理。服务器级基线见 `~/.dsh/AGENTS.md`；本文件只放本仓库特有约束。
+> 单一真源：`CONTEXT.md`（架构/命令/边界）、`CODING_STANDARDS.md`、`GLOSSARY.md`、`SECURITY.md`。
+
+## 命令
+
+- `pnpm run check:all`：build:packages → typecheck → lint → test → build → release gate（提交前必跑）。
+- `pnpm run verify:matrix --require-all /mnt`：校验五份 vendor 归档；dsh 冻结期必须带 `VOICE_MODE_MATRIX_SKIP=dsh-voice-mode`（D-0021）。
+- `pnpm run bench:smoke`：评测台架链路自检（C1）。
+
+## 硬约束
+
+1. `core` 零第三方运行时依赖；`core`/`browser` 不得依赖 obsidian/electron/@deepseek-ai/node:/DOM（架构门禁强制）。
+2. 任何 `core`/`browser` 变更必须同步五份 vendor 归档并跑 `verify:matrix`；锁定文件同步。
+3. 模型权重不入仓；移动端本地 WASM 模型保持禁用；实体机验证前不宣称移动端听写已支持。
+4. 表达力能力必须走 `expression-caps` 契约，不支持的能力显式降级，不静默丢弃。
+5. 错误/日志一律经 `redactSecrets`；不打印密钥、URL 凭据。
+6. bench 语料不入库；C2 只存 URL+SHA256。
+
+## 禁止
+
+- 不 `git add -A`；提交用文件白名单。
+- 不擅自打 tag/发布（发布由 maintainer 授权，见 `docs/distribution/launch-playbook.md`）。
+- 不引入声音克隆/声音设计。
+- 不为一次性代码做抽象；优先最小改动。

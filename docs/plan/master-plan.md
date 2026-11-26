@@ -136,14 +136,14 @@ flowchart LR
 - **交付物**：
   - 完成无 `v` 前缀正式 Tag（如 `1.0.0`）发布，GitHub Release 严格仅含 `main.js`、`manifest.json`、`styles.css`；
   - 通过 `eslint-plugin-obsidianmd` 0 Error / 0 Warning 与 `ObsidianReviewBot` 全部静态及人工政策核查；
-  - 向 `obsidianmd/obsidian-releases` 提交 `community-plugins.json` PR 并响应评审意见直至合并；
+  - 通过 `community.obsidian.md` 提交目录（账号 + 关联 GitHub），按自动审核提示修正直至通过；
   - 制作 15 秒有声核心 Demo 视频与中英文首发包，按 [docs/distribution/launch-playbook.md](../distribution/launch-playbook.md) 节奏在海内外渠道同步发布。
 - **验证命令**：
   - `pnpm run check:all`；
   - 全新空 Obsidian Vault 从 GitHub Release 产物离线手动安装 + BRAT 安装双冒烟；
   - `ObsidianReviewBot` 评论 0 阻断项。
 - **量化 Exit Criteria**：
-  - `obsidianmd/obsidian-releases` PR 合并上架，插件 ID `voice-mode` 可在 Obsidian 社区插件市场直接搜索安装；
+  - 目录审核通过后，插件 ID `voice-mode` 可在 Obsidian 社区插件市场直接搜索安装；
   - `main.js < 5 MB`（目标 `< 1 MB`），无任何未披露外联域名；
   - 上线 30 天内收集真实桌面/移动端反馈，完成首批热修迭代，沉淀公开 Benchmark 与用户案例。
 - **明确不做（Non-Goals）**：不在官方商店提审前做商业收费墙；不承诺未验证平台（如旧版 Obsidian `< 1.11.4` 密钥加密或 Linux 无声音服务环境）。
