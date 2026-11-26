@@ -408,6 +408,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       },
     });
 
+    this.addCommand({
+      id: "copy-runtime-status",
+      name: t("Copy voice runtime status"),
+      callback: () => {
+        void this.copyRuntimeStatus();
+      },
+    });
+
     this.addSettingTab(new VoiceModeSettingTab(this.app, this));
   }
 
@@ -2654,6 +2662,38 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
     this.stopReadAloudSilently();
     new Notice(t("Read-aloud stopped."));
+  }
+
+  /** Copy a structured runtime snapshot for bug reports (clipboard). */
+  private async copyRuntimeStatus(): Promise<void> {
+    try {
+      const payload = await this.collectRuntimeStatusJson();
+      await navigator.clipboard.writeText(JSON.stringify(payload, null, 2));
+      new Notice(t("Voice runtime status copied to clipboard."));
+    } catch {
+      new Notice(t("Could not copy the status (clipboard unavailable)."));
+    }
+  }
+
+  private async collectRuntimeStatusJson(): Promise<Record<string, unknown>> {
+    const modelStatus = await this.getModelStatus().catch(() => null);
+    const effectiveTts = this.getEffectiveTtsEngine();
+    return {
+      version: this.manifest.version,
+      platform: Platform.isDesktop ? "desktop" : "mobile",
+      hostClass: this.capabilities.hostClass,
+      asrEngine: this.getEffectiveAsrEngine(),
+      ttsEngine: effectiveTts,
+      ttsEngineMounted: this.speechPlayer?.hasRegisteredEngine(effectiveTts) ?? null,
+      bargeInMode: this.settings.bargeInMode,
+      localWasm: {
+        allowed: this.capabilities.allowLocalWasmModels,
+        ready: modelStatus?.ready ?? null,
+        vitsReady: modelStatus?.vitsReady ?? null,
+      },
+      secretStorageAvailable: this.secretStore.available,
+      readAloudState: this.speechPlayer?.state ?? "unavailable",
+    };
   }
 
   private async showRuntimeStatusNotice(): Promise<void> {
