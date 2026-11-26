@@ -3,6 +3,7 @@
 English | [简体中文](README.zh-CN.md)
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/qishuilalala/obsidian-voice-mode/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/qishuilalala/obsidian-voice-mode/actions/workflows/ci.yml)
 
 > **Source build (`0.1.0`)** · The GitHub Release and Obsidian Community Plugin Directory submission are pending. Build the plugin locally to try it.
 >
