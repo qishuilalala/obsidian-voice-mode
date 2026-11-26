@@ -1,8 +1,8 @@
 # Obsidian Voice Mode（语音模式）
 
-[English](README.en.md) | 简体中文
+[![CI](https://github.com/qishuilalala/obsidian-voice-mode/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/qishuilalala/obsidian-voice-mode/actions/workflows/ci.yml) [![License: MIT](https://img.shields.io/github/license/qishuilalala/obsidian-voice-mode?style=flat-square)](LICENSE)
 
-[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[English](README.en.md) | 简体中文
 
 Voice Mode 可以把口述内容写入当前笔记或侧栏输入框，也能跳过代码块和表格，按句朗读选区或整篇笔记。桌面离线听写支持中英混说，首次使用需下载模型。语音问答和云端转写可按需启用。
 
