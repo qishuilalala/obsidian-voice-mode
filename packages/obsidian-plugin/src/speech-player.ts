@@ -1,6 +1,5 @@
 import {
-  decodeMonoPcm16Wav,
-  encodeMonoPcm16Wav,
+  mergeMonoPcm16WavChunks,
   type TtsEngine,
   type TtsEngineKind,
   type TtsSynthOptions,
@@ -584,13 +583,12 @@ export class SpeechPlayer {
   ): Promise<SpeechExportResult> {
     const signal = options.signal ?? new AbortController().signal;
     const list = sentences.map((sentence) => sentence.trim()).filter((sentence) => sentence.length > 0);
-    const chunks: Float32Array[] = [];
-    let sampleRate = 0;
+    const wavChunks: Uint8Array[] = [];
     let skipped = 0;
 
     for (let index = 0; index < list.length; index++) {
       if (signal.aborted) {
-        return { wav: null, sampleRate, sentences: chunks.length, skipped, reason: "cancelled" };
+        return { wav: null, sampleRate: 0, sentences: wavChunks.length, skipped, reason: "cancelled" };
       }
       const result = await this.synthesizeSentence(list[index] ?? "", signal);
       options.onProgress?.(index + 1, list.length);
@@ -598,45 +596,24 @@ export class SpeechPlayer {
         skipped += 1;
         continue;
       }
-      const audio =
-        result.audio instanceof Uint8Array ? result.audio : new Uint8Array(result.audio);
-      const decoded = decodeMonoPcm16Wav(audio);
-      if (!decoded) {
-        skipped += 1;
-        continue;
-      }
-      if (sampleRate === 0) {
-        sampleRate = decoded.sampleRate;
-      }
-      if (decoded.sampleRate !== sampleRate) {
-        skipped += 1;
-        continue;
-      }
-      chunks.push(decoded.samples);
+      wavChunks.push(result.audio instanceof Uint8Array ? result.audio : new Uint8Array(result.audio));
     }
 
-    if (chunks.length === 0) {
+    const merged = mergeMonoPcm16WavChunks(wavChunks);
+    if (!merged) {
       return {
         wav: null,
-        sampleRate,
+        sampleRate: 0,
         sentences: 0,
-        skipped,
-        reason: skipped > 0 ? "no-wav-engine" : "empty",
+        skipped: skipped + wavChunks.length,
+        reason: "no-wav-engine",
       };
     }
-
-    const totalSamples = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
-    const merged = new Float32Array(totalSamples);
-    let offset = 0;
-    for (const chunk of chunks) {
-      merged.set(chunk, offset);
-      offset += chunk.length;
-    }
     return {
-      wav: encodeMonoPcm16Wav(merged, sampleRate),
-      sampleRate,
-      sentences: chunks.length,
-      skipped,
+      wav: merged.wav,
+      sampleRate: merged.sampleRate,
+      sentences: merged.merged,
+      skipped: skipped + merged.skipped,
     };
   }
 

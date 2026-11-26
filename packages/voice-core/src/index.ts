@@ -172,6 +172,7 @@ export {
   resolveTranscriptionsEndpointUrl,
   encodeMonoPcm16Wav,
   decodeMonoPcm16Wav,
+  mergeMonoPcm16WavChunks,
   buildMultipartFormData,
   normalizeWhisperLanguage,
   OpenAiCompatAsrTransport,

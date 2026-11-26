@@ -158,6 +158,47 @@ export function decodeMonoPcm16Wav(input: Uint8Array): { samples: Float32Array; 
 }
 
 /**
+ * Merge several mono PCM16LE WAV buffers into one WAV. Non-WAV or mismatched
+ * sample-rate chunks are skipped (and counted) instead of corrupting the output.
+ */
+export function mergeMonoPcm16WavChunks(
+  chunks: readonly Uint8Array[],
+): { wav: Uint8Array; sampleRate: number; merged: number; skipped: number } | null {
+  const decodedChunks: Float32Array[] = []
+  let sampleRate = 0
+  let skipped = 0
+  for (const chunk of chunks) {
+    const decoded = decodeMonoPcm16Wav(chunk)
+    if (!decoded) {
+      skipped += 1
+      continue
+    }
+    if (sampleRate === 0) {
+      sampleRate = decoded.sampleRate
+    }
+    if (decoded.sampleRate !== sampleRate) {
+      skipped += 1
+      continue
+    }
+    decodedChunks.push(decoded.samples)
+  }
+  if (decodedChunks.length === 0) return null
+  const totalSamples = decodedChunks.reduce((sum, samples) => sum + samples.length, 0)
+  const merged = new Float32Array(totalSamples)
+  let offset = 0
+  for (const samples of decodedChunks) {
+    merged.set(samples, offset)
+    offset += samples.length
+  }
+  return {
+    wav: encodeMonoPcm16Wav(merged, sampleRate),
+    sampleRate,
+    merged: decodedChunks.length,
+    skipped,
+  }
+}
+
+/**
  * Encode mono Float32 PCM samples (`[-1, 1]` clamped, `NaN` -> `0`) into a
  * standard 44-byte RIFF/WAVE PCM16LE `Uint8Array`.
  */

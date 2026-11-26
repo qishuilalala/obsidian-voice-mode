@@ -32,3 +32,24 @@ describe('WAV export: encode/decode round-trip', () => {
     assert.equal(decodeMonoPcm16Wav(new TextEncoder().encode('not a wav file at all, definitely not')), null)
   })
 })
+
+describe('WAV merge helper', () => {
+  it('merges multiple WAV chunks and skips non-WAV input', async () => {
+    const { mergeMonoPcm16WavChunks } = await import('../src/index.ts')
+    const first = encodeMonoPcm16Wav(new Float32Array([0.1, 0.2]), 16000)
+    const second = encodeMonoPcm16Wav(new Float32Array([0.3]), 16000)
+    const result = mergeMonoPcm16WavChunks([first, new Uint8Array(4), second])
+    assert.ok(result)
+    assert.equal(result.merged, 2)
+    assert.equal(result.skipped, 1)
+    assert.equal(result.sampleRate, 16000)
+    const decoded = decodeMonoPcm16Wav(result.wav)
+    assert.ok(decoded)
+    assert.equal(decoded.samples.length, 3)
+  })
+
+  it('returns null when no WAV chunk is decodable', async () => {
+    const { mergeMonoPcm16WavChunks } = await import('../src/index.ts')
+    assert.equal(mergeMonoPcm16WavChunks([new Uint8Array(2)]), null)
+  })
+})
