@@ -86,6 +86,7 @@
 | **N-5** | Kokoro 按句音色（P2-1） | 选中文 Kokoro 音色（`zf_xiaobei`）+ `autoLanguageVoice` 开 → 中英混排朗读（daemon 在线） | 英文句自动切 `af_maple`；关闭开关后保持中文音色 | 单测覆盖切换逻辑；**真机待验（需 daemon + 模型）** |
 | **N-6** | 导出合成缓存（P1-4） | 同一笔记连续两次「导出朗读为 WAV」（WAV 引擎） | 第二次导出复用会话缓存、无重复合成；导出结果正确 | 单测覆盖缓存复用；**真机待验** |
 | **N-7** | 评测基线 CI（P1-6） | 观察 CI 的 Bench smoke job | `check-bench` 通过 bench@1 schema 校验；四产品可跨仓运行 | **CI 已覆盖**（无需真机） |
+| **N-8** | 表达标签不念出（E2 剥离） | 笔记写入含 `<slow>慢读</slow>`、`<whisper>` 等标签的句子 → 朗读 | **不念出标签名**（按普通文本朗读）；标签不导致朗读内容异常 | 已修复朗读入口剥离（2026-11-26）；**真机待验** |
 
 ## 3. 移动端（`Android 15 AVD Emulator` + `Xcode iOS 27.0 Simulator WKWebView harness`）降级验证表（M3/M4 已闭环）
 

@@ -2497,7 +2497,12 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       maxSentenceChars: this.settings.maxSentenceChars,
       tablePolicy: this.settings.markdownTablePolicy,
     });
-    const sentences = this.applyPronunciationDict(rawSentences);
+    // Expression tags (E2) are parsed by core but the Obsidian UI does not apply them to
+    // engines yet, so strip them here: reading the tag names aloud would be worse than
+    // ignoring the tags (declared behavior in README).
+    const sentences = this.applyPronunciationDict(rawSentences)
+      .map((sentence) => stripEmotionTags(sentence))
+      .filter((sentence) => sentence.trim().length > 0);
     if (sentences.length === 0) {
       new Notice(t("No readable text found in the selection or note."));
       return;
@@ -2614,7 +2619,12 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       maxSentenceChars: this.settings.maxSentenceChars,
       tablePolicy: this.settings.markdownTablePolicy,
     });
-    const sentences = this.applyPronunciationDict(rawSentences);
+    // Expression tags (E2) are parsed by core but the Obsidian UI does not apply them to
+    // engines yet, so strip them here: reading the tag names aloud would be worse than
+    // ignoring the tags (declared behavior in README).
+    const sentences = this.applyPronunciationDict(rawSentences)
+      .map((sentence) => stripEmotionTags(sentence))
+      .filter((sentence) => sentence.trim().length > 0);
 
     if (sentences.length === 0) {
       new Notice(t("No readable text found in the selection or note."));
