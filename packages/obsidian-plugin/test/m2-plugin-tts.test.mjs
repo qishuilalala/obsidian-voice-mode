@@ -1048,4 +1048,28 @@ describe("SpeechPlayer read-aloud progress (P4)", () => {
     ]);
     await player.dispose();
   });
+
+
+  it("reuses cached WAV synthesis for repeated sentences (session cache)", async () => {
+    const { encodeMonoPcm16Wav } = await import("@voice-mode/core");
+    const wav = encodeMonoPcm16Wav(new Float32Array(1600), 24000);
+    let synthCalls = 0;
+    const player = new SpeechPlayer(
+      { engine: "vits-wasm", voice: "v0", rate: 1, language: "zh-CN" },
+      { onError: () => {} },
+      () => ({}) ,
+      {},
+    );
+    player.registerEngine({
+      kind: "vits-wasm",
+      synthesize: async () => {
+        synthCalls += 1;
+        return { audio: wav, mime: "audio/wav" };
+      },
+    });
+    const first = await player.exportSentences(["缓存命中测试。"]);
+    const second = await player.exportSentences(["缓存命中测试。"]);
+    assert.ok(first.wav && second.wav);
+    assert.equal(synthCalls, 1, "second export must reuse the cached WAV");
+  });
 });

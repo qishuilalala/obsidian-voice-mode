@@ -482,6 +482,9 @@ export class SpeechPlayer {
   private readonly queue: PlaybackQueue;
   private readonly sink: ObsidianAudioSink;
   private readonly engines = new Map<TtsEngineKind, TtsEngine>();
+  /** P1-4: per-session synthesis cache so repeated sentences/export reuse WAV audio. */
+  private readonly synthesisCache = new Map<string, TtsSynthResult>();
+  private static readonly SYNTHESIS_CACHE_MAX_ENTRIES = 100;
   private readonly hooks: SpeechPlayerHooks;
   private config: SpeechPlayerConfig;
   private fallbackNotifiedForEngine: TtsEngineKind | null = null;
@@ -590,7 +593,7 @@ export class SpeechPlayer {
       if (signal.aborted) {
         return { wav: null, sampleRate: 0, sentences: wavChunks.length, skipped, reason: "cancelled" };
       }
-      const result = await this.synthesizeSentence(list[index] ?? "", signal);
+      const result = await this.synthesizeSentence(list[index] ?? "", signal, true);
       options.onProgress?.(index + 1, list.length);
       if (!result || result.mime !== "audio/wav") {
         skipped += 1;
@@ -699,12 +702,14 @@ export class SpeechPlayer {
       closing.push(engine.close().catch(() => undefined));
     }
     this.engines.clear();
+    this.synthesisCache.clear();
     await Promise.all(closing);
   }
 
   private async synthesizeSentence(
     sentence: string,
     signal: AbortSignal,
+    useCache = false,
   ): Promise<TtsSynthResult | null> {
     if (signal.aborted) {
       return null;
@@ -713,12 +718,32 @@ export class SpeechPlayer {
     const requestedEngine = this.config.engine;
     const mounted = this.engines.get(requestedEngine);
     if (requestedEngine !== "system" && mounted) {
+      const cacheKey = useCache
+        ? `${requestedEngine}|${this.config.voice ?? ""}|${this.config.rate ?? ""}|${sentence}`
+        : null;
+      if (cacheKey) {
+        const cached = this.synthesisCache.get(cacheKey);
+        if (cached) {
+          return cached;
+        }
+      }
       const synthOptions: TtsSynthOptions = {
         voice: this.config.voice || undefined,
         rate: this.config.rate,
         signal,
       };
-      return mounted.synthesize(sentence, synthOptions);
+      const result = await mounted.synthesize(sentence, synthOptions);
+      if (cacheKey && result.mime === "audio/wav" && !signal.aborted) {
+        this.synthesisCache.set(cacheKey, result);
+        while (this.synthesisCache.size > SpeechPlayer.SYNTHESIS_CACHE_MAX_ENTRIES) {
+          const oldest = this.synthesisCache.keys().next().value;
+          if (oldest === undefined) {
+            break;
+          }
+          this.synthesisCache.delete(oldest);
+        }
+      }
+      return result;
     }
 
     if (requestedEngine !== "system" && this.fallbackNotifiedForEngine !== requestedEngine) {
