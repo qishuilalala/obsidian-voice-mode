@@ -21,6 +21,18 @@ const consumers = [
   { repo: "dsh-voice-mode", vendor: "plugin/dsh-voice-mode/vendor", packages: ["core"] },
 ];
 
+// Explicit, auditable exemptions for consumers that are deliberately pinned to an
+// older shared-core build. dsh-voice-mode is a released package; per decision
+// D-0021 it stays frozen on the previous core until its next release rebuilds
+// lib/ and the vendored archive together. Set VOICE_MODE_MATRIX_SKIP=dsh-voice-mode
+// to acknowledge the known stale archive; the default stays strict.
+const skipRepos = new Set(
+  String(process.env.VOICE_MODE_MATRIX_SKIP ?? "")
+    .split(",")
+    .map((value) => value.trim())
+    .filter(Boolean),
+);
+
 function sha256(file) {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex");
 }
@@ -52,6 +64,10 @@ try {
   }
 
   for (const { repo, vendor, packages } of consumers) {
+    if (skipRepos.has(repo)) {
+      console.log(`[SKIP] ${repo} exempted via VOICE_MODE_MATRIX_SKIP (known stale core, see D-0021)`);
+      continue;
+    }
     const checkout = path.join(matrixRoot, repo);
     if (!fs.existsSync(checkout)) {
       if (values["require-all"]) throw new Error(`Required checkout absent: ${checkout}`);
