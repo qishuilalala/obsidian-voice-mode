@@ -2,7 +2,7 @@
 
 - **状态**：Accepted
 - **日期**：2026-11-26
-- **关联文档**：[ADR-0006](0006-expression-capability-contract.md)、[docs/08](../../../voice-mode-private/docs/08-决策支撑报告-长文本·平台API·评测基线·发布优先级.md)（私有仓）
+- **关联文档**：[ADR-0006](0006-expression-capability-contract.md)、内部长文本决策纪要（不公开）
 
 ## 背景
 

@@ -2,7 +2,7 @@
 
 - **状态**：Accepted
 - **日期**：2026-11-26
-- **关联文档**：[ADR-0002](0002-dual-mode-wasm-and-sidecar-daemon.md)、[ADR-0003](0003-zero-dep-byok-llm-router-and-secret-storage.md)、[GLOSSARY.md](../../GLOSSARY.md)、[docs/09](../../../voice-mode-private/docs/09-表达力专项计划-音色语气感情.md)（私有仓）
+- **关联文档**：[ADR-0002](0002-dual-mode-wasm-and-sidecar-daemon.md)、[ADR-0003](0003-zero-dep-byok-llm-router-and-secret-storage.md)、[GLOSSARY.md](../../GLOSSARY.md)、内部表达力设计纪要（不公开）
 
 ## 背景
 
