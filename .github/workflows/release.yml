@@ -1,7 +1,7 @@
 name: Release
 
 # Triggered by Obsidian-compliant semver tags WITHOUT a leading "v" (e.g. 0.1.0, 1.0.0).
-# Uploads ONLY main.js, manifest.json, and styles.css as required by obsidianmd/obsidian-releases.
+# Uploads ONLY main.js, manifest.json, and styles.css as required by the Obsidian community directory (community.obsidian.md).
 
 on:
   push:
