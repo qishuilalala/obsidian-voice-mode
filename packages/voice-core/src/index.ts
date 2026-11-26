@@ -218,3 +218,10 @@ export {
   type ExpressionDegradation,
   type ExpressionAnalysis,
 } from './expression-caps.ts'
+
+export {
+  detectTextLanguage,
+  detectPresentLanguages,
+  type DetectedLanguage,
+} from './language-detect.ts'
+
