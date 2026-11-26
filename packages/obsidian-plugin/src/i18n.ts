@@ -98,7 +98,7 @@ const simplifiedChinese = {
   "1 · Try read-aloud": "1 · 先试朗读",
   "Run \"Read selection or note aloud\" from the command palette. System speech needs no model download.": "在命令面板运行「朗读选中文本或当前笔记」；系统语音无需下载模型。",
   "2 · Optional: offline dictation": "2 · 可选：离线听写",
-  "Under Models & privacy, click \"Download or verify models\" (about 245 MB, stored outside your vault).": "在「模型与隐私」中点击「下载或校验模型」（约 245 MB，存放在笔记库外）。",
+  "The first time local models are needed, a download guide opens automatically; you can also click \"Download or verify models\" under Models & privacy (about 245 MB, stored outside your vault).": "首次需要本地模型时会自动弹出下载向导；也可在「模型与隐私」中点击「下载或校验模型」（约 245 MB，存放在笔记库外）。",
   "3 · Try dictation": "3 · 试听写",
   "Run \"Dictate single utterance\" or \"Toggle voice dictation\", allow microphone access, and speak one sentence.": "运行「听写一句话」或「开始或停止听写」，允许麦克风权限后说一句话。",
   "4 · Optional: better voices": "4 · 可选：更好音色",

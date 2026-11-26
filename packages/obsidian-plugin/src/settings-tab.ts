@@ -321,7 +321,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             ? [
                 {
                   name: t("2 · Optional: offline dictation"),
-                  desc: t("Under Models & privacy, click \"Download or verify models\" (about 245 MB, stored outside your vault)."),
+                  desc: t(
+                    "The first time local models are needed, a download guide opens automatically; you can also click \"Download or verify models\" under Models & privacy (about 245 MB, stored outside your vault).",
+                  ),
                 },
                 {
                   name: t("3 · Try dictation"),
