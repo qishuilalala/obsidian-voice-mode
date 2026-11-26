@@ -1,17 +1,17 @@
 # 官方目录提审与开源发布增长手册（Launch Playbook）
 
-> **执行状态（2026-11-22）**：M0–M4 本机桌面真机、四项发版声学必过门禁（`A-1`–`A-4`）、401/500 密钥脱敏审计、全新空 Vault 3 文件与 `BRAT 2.2.0` 双冒烟、实网 `MiMo` 云端朗读、`Android 15 AVD Emulator (Obsidian 1.15.1 APK, System WebView 124.0)` `M-1`–`M-5` 验证及 `Xcode iOS 27.0 Simulator WKWebView harness` 验证均已完成闭环；15 秒横竖屏有声演示（`release-assets/`）与全渠道即发定稿见 [launch-kit.md](launch-kit.md)。当前遵守“先不发”边界，待用户授权后打正式无 `v` Tag（`0.1.0`）并提交 `obsidianmd/obsidian-releases` PR。
+> **执行状态（2026-11-22）**：M0–M4 本机桌面真机、四项发版声学必过门禁（`A-1`–`A-4`）、401/500 密钥脱敏审计、全新空 Vault 3 文件与 `BRAT 2.2.0` 双冒烟、实网 `MiMo` 云端朗读、`Android 15 AVD Emulator (Obsidian 1.15.1 APK, System WebView 124.0)` `M-1`–`M-5` 验证及 `Xcode iOS 27.0 Simulator WKWebView harness` 验证均已完成闭环；15 秒横竖屏有声演示（`release-assets/`）与全渠道即发定稿见 [launch-kit.md](launch-kit.md)。当前遵守“先不发”边界，待用户授权后打正式无 `v` Tag（`0.1.0`）并通过 `community.obsidian.md` 提交目录。
 
 ---
 
-## 1. `obsidianmd/obsidian-releases` 官方目录提审全流程自检
+## 1. Obsidian 官方社区目录提审全流程自检（`community.obsidian.md`）
 
-Obsidian 官方社区目录（截至 2026-11-21 共 10,682 插件，`voice-mode` ID 空闲）采用 **`ObsidianReviewBot` 自动化扫描 + 人工维护者复核**双审制。以下按最高频拒审点逐一排雷：
+Obsidian 官方社区目录（截至 2026-11-26 实测 10,902 插件，`voice-mode` ID 空闲）采用**自动审核 + 人工复核**双审制。现行提交流程为 `community.obsidian.md`（需 Obsidian 账号 + 关联 GitHub），**不再使用 Fork `obsidianmd/obsidian-releases` 提 PR 的旧流程**。以下按最高频拒审点逐一排雷：
 
 ### 1.1 Manifest 与仓库结构硬检查
 
 - [x] `manifest.json` 关键字段合规（由 `scripts/check-release-gate.mjs` 每次构建强制门禁）：
-  - `"id": "voice-mode"`（与 `community-plugins.json` PR 条目完全一致，不含 `obsidian` 字样）；
+  - `"id": "voice-mode"`（全局唯一、不含 `obsidian` 字样；目录处理默认分支 HEAD 的 `manifest.json`）；
   - `"name": "Voice Mode"`（不以 `Obsidian` 开头或结尾）；
   - `"description"` 简洁明了、句尾带句号、不重复插件名、不含 “for Obsidian”；
   - `"minAppVersion": "1.11.4"`（显式对齐 `app.secretStorage` 最低版本，且 `versions.json` 含对应映射）；
@@ -37,19 +37,12 @@ Obsidian 官方社区目录（截至 2026-11-21 共 10,682 插件，`voice-mode`
 
 1. 完成 iOS/Android 移动物理设备最终复核并在干净测试 Vault 验证 3 文件（`main.js`、`manifest.json`、`styles.css`）离线手动安装与 BRAT 安装；
 2. 确认 `CHANGELOG.md` 具备与目标版本号一致的 `## [<version>]` 章节，推送首个无 `v` 前缀正式 Tag（如 `0.1.0` 或 `1.0.0`），确认 `.github/workflows/release.yml` 成功生成仅含 3 个附件的 GitHub Release；
-3. Fork `obsidianmd/obsidian-releases`，在 `community-plugins.json` **文件末尾**追加以下与 `manifest.json` 严格对齐的条目（不重排他人条目）：
+3. 在 [community.obsidian.md](https://community.obsidian.md) 登录 Obsidian 账号并关联 GitHub（证明仓库归属），在目录中“Add your plugin”提交：
+   - 目录读取**默认分支 HEAD 的 `manifest.json`**，提交前确保已提交且准确；
+   - `id` 全局唯一、不含 `obsidian`；`version` 与 GitHub Release tag 一致；
+   - Release 附件仅 `main.js`、`manifest.json`、`styles.css`（三件套，见 §1.1）。
 
-```json
-  {
-    "id": "voice-mode",
-    "name": "Voice Mode",
-    "author": "qishuilalala",
-    "description": "Offline-first bilingual voice dictation, Markdown-aware read-aloud, and optional BYOK voice Q&A.",
-    "repo": "qishuilalala/obsidian-voice-mode"
-  }
-```
-
-4. 提交 PR，等待 `ObsidianReviewBot` 首次自动评论；如出现任何 Warning/Required 项，24 小时内通过新小版本 Tag（如 `0.1.1` / `1.0.1`）修复并在 PR 中回复核验说明。
+4. 提交后等待自动审核；按目录提示修正（如需新版本，递增版本号并发布新 Release）。审核通过后用户即可在 Obsidian 内直接安装。
 
 ---
 

@@ -66,6 +66,8 @@ Measured inside real **Obsidian `1.15.1` (`Electron 43.8.9` / `Chromium 150.0.78
 | **Desktop** (macOS / Windows / Linux, Obsidian `>= 1.11.4`) | Primary (macOS M0–M6 verified, incl. live `voice-daemon` joint E2E) | Supports Web Worker offline WASM dictation (`SenseVoice WASM`), multi-engine read-aloud (`system`, optional local `vits-wasm` / `kokoro-daemon`, BYOK `openai-compat` / live `mimo`) + native AEC3 barge-in, and optional BYOK voice Q&A (`VoiceQaModal`), 4-guard transcript polish, & `openai-compat` / `daemon` ASR |
 | **Mobile** (iOS / Android, Obsidian `>= 1.11.4`) | Graceful degradation (`isDesktopOnly: false`; verified on Android 15 AVD Emulator `Obsidian 1.15.1` APK & Xcode `iOS 27.0` Simulator `WKWebView` harness) | Heavy 200 MB+ local WASM models are disabled under `Platform.isMobile` to reduce memory pressure. The tested iOS simulator exposed native `speechSynthesis` (`68` voices), whereas Android System WebView (`124.0`) omits `window.speechSynthesis` (cleanly prompting BYOK TTS while exposing `webkitSpeechRecognition`), gated by `allowCloudFallbackOnMobile` (default `false`) |
 
+> **Mobile dictation is conditional**: it works only when the mobile WebView exposes `SpeechRecognition` and the system speech provider is available; local WASM dictation models and the local `voice-daemon` are disabled on mobile by design. Physical-device verification is pending, so mobile dictation is not advertised as verified — use the desktop path for offline dictation.
+
 ---
 
 ## Privacy, Network Access & External Model Disclosure

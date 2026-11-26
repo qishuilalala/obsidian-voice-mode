@@ -71,6 +71,8 @@ Voice Mode 可以把口述内容写入当前笔记或侧栏输入框，也能跳
 | **桌面端**（macOS / Windows / Linux，Obsidian `>= 1.11.4`） | 主力端（macOS M0–M6 已实测通过，含 `voice-daemon` 联调 E2E） | 支持 Web Worker 离线 WASM 听写（`SenseVoice WASM`）、多引擎朗读（系统语音、可选离线 `vits-wasm` / 本机 `kokoro-daemon`、BYOK `openai-compat` / 实网 `mimo`）+ 原生 AEC3 外放打断，以及可选 BYOK 选区/笔记语音问答（`VoiceQaModal`）、4 层防幻觉润色与 `openai-compat` / `daemon` 转写 |
 | **移动端**（iOS / Android，Obsidian `>= 1.11.4`） | 优雅降级（`isDesktopOnly: false`，已通过 Android 15 AVD 模拟器 `Obsidian 1.15.1` APK 与 Xcode `iOS 27.0` Simulator `WKWebView` 测试基座验证） | `Platform.isMobile` 下禁用 200 MB+ 本地 WASM 模型以降低内存压力；受测 iOS `WKWebView` 提供 `speechSynthesis`（`68` 音色），Android System WebView（`124.0`）原生无 `window.speechSynthesis`（友好提示启用 BYOK TTS，同时保留 `webkitSpeechRecognition`），受 `allowCloudFallbackOnMobile`（默认 `false`）门控 |
 
+> **移动端听写为有条件能力**：仅当移动 WebView 暴露 `SpeechRecognition` 且系统语音服务可用时生效；本地 WASM 听写模型与本机 `voice-daemon` 在移动端按设计禁用。实体手机验证尚未完成，因此不宣称移动端听写已验证——离线听写请使用桌面端。
+
 ---
 
 ## 隐私边界、外部网络与模型来源披露
