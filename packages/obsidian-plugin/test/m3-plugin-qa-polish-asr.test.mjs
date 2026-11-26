@@ -449,6 +449,7 @@ describe("Obsidian interface language", () => {
     assert.ok(findButtonByText(tab.containerEl, "下载或校验模型"));
     assert.ok(findButtonByText(tab.containerEl, "添加规则"));
     assert.ok(hasText(tab.containerEl, "发音词典（朗读）"));
+    // The language-scope input is rendered only when rules exist (placeholder lives in attrs).
 
     const modal = new VoiceQaModal(app, { scope: "selection", text: "abc", truncated: true }, {});
     modal.open();
@@ -489,6 +490,17 @@ describe("settings.ts M3 fields (asrModel, enableLlmPolish, zero-secret guarante
       pronunciationDict: [{ from: ["API"], to: "A P I" }],
     });
     assert.deepEqual(withPronunciation.pronunciationDict, [{ from: ["API"], to: "A P I" }]);
+    const scopedPronunciation = normalizeSettings({
+      pronunciationDict: [{ from: ["API"], to: "A P I", language: "en" }],
+    });
+    assert.deepEqual(scopedPronunciation.pronunciationDict, [
+      { from: ["API"], to: "A P I", language: "en" },
+    ]);
+    const invalidLanguage = normalizeSettings({
+      pronunciationDict: [{ from: ["x"], to: "y", language: "fr" }],
+    });
+    assert.deepEqual(invalidLanguage.pronunciationDict, []);
+
     const invalidPronunciation = normalizeSettings({ pronunciationDict: "not-an-array" });
     assert.deepEqual(invalidPronunciation.pronunciationDict, []);
 

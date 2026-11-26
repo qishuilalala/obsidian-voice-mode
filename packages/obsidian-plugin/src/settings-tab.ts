@@ -26,6 +26,7 @@ import {
   validateModelHost,
   validateReplacements,
   type AsrReplacement,
+  type AsrReplacementLanguage,
   type MarkdownTablePolicy,
   type TtsEngineKind,
 } from "@voice-mode/core";
@@ -1285,6 +1286,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       setRules: (rules) => {
         this.host.settings.pronunciationDict = rules;
       },
+      withLanguage: true,
     });
   }
 
@@ -1296,6 +1298,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       emptyText: string;
       getRules: () => AsrReplacement[];
       setRules: (rules: AsrReplacement[]) => void;
+      withLanguage?: boolean;
     },
   ): void {
     const panel = parentEl.createDiv({ cls: "vm-replacements-panel" });
@@ -1367,14 +1370,30 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           value: rule.to,
           placeholder: t("Replacement term"),
         });
+        let languageInput: HTMLInputElement | null = null;
+        if (opts.withLanguage) {
+          languageInput = row.createEl("input", {
+            type: "text",
+            value: rule.language ?? "",
+            placeholder: t("Language (zh/en/ja/ko, empty = all)"),
+          });
+        }
         const removeBtn = row.createEl("button", { text: t("Remove") });
 
         const applyEdit = async (): Promise<void> => {
           const nextAliases = parseAliasList(fromInput.value);
           const nextTo = toInput.value.trim();
+          const rawLanguage = languageInput?.value.trim().toLowerCase() ?? "";
+          if (rawLanguage && !["zh", "en", "ja", "ko"].includes(rawLanguage)) {
+            new Notice(t("Rule language must be one of zh/en/ja/ko (or empty)."));
+            if (languageInput) languageInput.value = rule.language ?? "";
+            return;
+          }
+          const nextLanguage = (rawLanguage || undefined) as AsrReplacementLanguage | undefined;
           if (
             nextAliases.join("\u0000") === rule.from.join("\u0000") &&
-            nextTo === rule.to
+            nextTo === rule.to &&
+            (nextLanguage ?? "") === (rule.language ?? "")
           ) {
             return;
           }
@@ -1385,7 +1404,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             return;
           }
           const copy: AsrReplacement[] = currentRules().map((item, idx) =>
-            idx === index ? { from: nextAliases, to: nextTo } : item,
+            idx === index
+              ? { from: nextAliases, to: nextTo, ...(nextLanguage ? { language: nextLanguage } : {}) }
+              : item,
           );
           const ok = await commitCandidateRules(copy, false);
           if (!ok) {
@@ -1394,6 +1415,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           } else {
             rule.from = nextAliases;
             rule.to = nextTo;
+            if (nextLanguage) rule.language = nextLanguage;
+            else delete rule.language;
           }
         };
 
@@ -1422,6 +1445,12 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       type: "text",
       placeholder: t("Target term (e.g. Obsidian)"),
     });
+    const newLanguageInput = opts.withLanguage
+      ? addRow.createEl("input", {
+          type: "text",
+          placeholder: t("Language (zh/en/ja/ko, empty = all)"),
+        })
+      : null;
     const addBtn = addRow.createEl("button", { cls: "mod-cta", text: t("Add rule") });
 
     const submitNewRule = async (): Promise<void> => {
@@ -1431,14 +1460,24 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         new Notice(t("Enter at least one spoken alias and a target replacement term."));
         return;
       }
+      const rawNewLanguage = newLanguageInput?.value.trim().toLowerCase() ?? "";
+      if (rawNewLanguage && !["zh", "en", "ja", "ko"].includes(rawNewLanguage)) {
+        new Notice(t("Rule language must be one of zh/en/ja/ko (or empty)."));
+        return;
+      }
       const nextRules: AsrReplacement[] = [
         ...currentRules(),
-        { from: fromAliases, to: toVal },
+        {
+          from: fromAliases,
+          to: toVal,
+          ...(rawNewLanguage ? { language: rawNewLanguage as AsrReplacementLanguage } : {}),
+        },
       ];
       const ok = await commitCandidateRules(nextRules, true);
       if (ok) {
         newFromInput.value = "";
         newToInput.value = "";
+        if (newLanguageInput) newLanguageInput.value = "";
       }
     };
 

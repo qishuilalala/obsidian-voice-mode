@@ -7,12 +7,15 @@ import {
   OpenAiCompatTtsEngine,
   buildMemfsSherpaGlue,
   createAsrReplacer,
+  detectTextLanguage,
+  filterReplacementsByLanguage,
   isCloudAsrEngine,
   isCloudTtsEngine,
   redactSecrets,
   resolveDaemonBaseUrl,
   resolveTranscriptionsEndpointUrl,
   stripEmotionTags,
+  type AsrReplacer,
   type AsrTransport,
   type TtsEngineKind,
 } from "@voice-mode/core";
@@ -2494,14 +2497,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       maxSentenceChars: this.settings.maxSentenceChars,
       tablePolicy: this.settings.markdownTablePolicy,
     });
-    // P1-2 pronunciation dictionary: rewrite text before TTS (e.g. "API" -> "A P I").
-    const pronunciationReplacer =
-      this.settings.pronunciationDict.length > 0
-        ? createAsrReplacer(this.settings.pronunciationDict)
-        : null;
-    const sentences = pronunciationReplacer
-      ? rawSentences.map((sentence) => pronunciationReplacer(sentence))
-      : rawSentences;
+    const sentences = this.applyPronunciationDict(rawSentences);
     if (sentences.length === 0) {
       new Notice(t("No readable text found in the selection or note."));
       return;
@@ -2580,6 +2576,33 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     await this.readSelectionOrNoteAloud({ startIndex: resume.sentenceIndex });
   }
 
+  /**
+   * P1-2: apply the pronunciation dictionary per sentence, honoring language-scoped rules.
+   * Global rules always apply; `language`-scoped rules apply only to matching sentences.
+   */
+  private applyPronunciationDict(sentences: string[]): string[] {
+    const rules = this.settings.pronunciationDict;
+    if (rules.length === 0) {
+      return sentences;
+    }
+    const replacers = new Map<string, AsrReplacer | null>();
+    const resolve = (sentence: string): AsrReplacer | null => {
+      const detected = detectTextLanguage(sentence);
+      const family = detected === "mixed" || detected === "unknown" ? "" : detected;
+      if (replacers.has(family)) {
+        return replacers.get(family) ?? null;
+      }
+      const scoped = filterReplacementsByLanguage(rules, family);
+      const replacer = scoped.length > 0 ? createAsrReplacer(scoped) : null;
+      replacers.set(family, replacer);
+      return replacer;
+    };
+    return sentences.map((sentence) => {
+      const replacer = resolve(sentence);
+      return replacer ? replacer(sentence) : sentence;
+    });
+  }
+
   private async readSelectionOrNoteAloud(options: { startIndex?: number } = {}): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.editor) {
@@ -2591,14 +2614,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       maxSentenceChars: this.settings.maxSentenceChars,
       tablePolicy: this.settings.markdownTablePolicy,
     });
-    // P1-2 pronunciation dictionary: rewrite text before TTS (e.g. "API" -> "A P I").
-    const pronunciationReplacer =
-      this.settings.pronunciationDict.length > 0
-        ? createAsrReplacer(this.settings.pronunciationDict)
-        : null;
-    const sentences = pronunciationReplacer
-      ? rawSentences.map((sentence) => pronunciationReplacer(sentence))
-      : rawSentences;
+    const sentences = this.applyPronunciationDict(rawSentences);
 
     if (sentences.length === 0) {
       new Notice(t("No readable text found in the selection or note."));

@@ -259,6 +259,8 @@ const simplifiedChinese = {
   "Downloading… {0}%": "下载中… {0}%",
   "Download complete.": "下载完成。",
   "Download failed: {0}": "下载失败：{0}",
+  "Language (zh/en/ja/ko, empty = all)": "规则语言（zh/en/ja/ko，留空=全部）",
+  "Rule language must be one of zh/en/ja/ko (or empty).": "规则语言必须是 zh/en/ja/ko 之一（或留空）。",
   "For Kokoro voices, switch to a matching-language voice when the note mixes Chinese and English.":
     "对 Kokoro 音色：当笔记中英混排时，按句子语言自动切换音色。",
   "Pronunciation dictionary (read-aloud)": "发音词典（朗读）",

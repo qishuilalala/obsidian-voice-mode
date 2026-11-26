@@ -15,7 +15,9 @@ export {
   replacementsPayloadBytes,
   validateReplacements,
   createAsrReplacer,
+  filterReplacementsByLanguage,
   type AsrReplacement,
+  type AsrReplacementLanguage,
   type AsrReplacer,
   type ValidateReplacementsResult,
 } from './asr-replacements.ts'

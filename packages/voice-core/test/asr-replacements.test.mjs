@@ -5,9 +5,32 @@ import {
   replacementsPayloadBytes,
   validateReplacements,
   createAsrReplacer,
+  filterReplacementsByLanguage,
 } from '../src/index.ts'
 
 describe('asr-replacements', () => {
+  it('keeps optional language scopes and filters rules by language family', () => {
+    const check = validateReplacements([
+      { from: ['API'], to: 'A P I', language: 'en' },
+      { from: ['光四点'], to: '光4点' },
+      { from: ['てすと'], to: 'テスト', language: 'ja' },
+    ])
+    assert.equal(check.ok, true)
+    assert.equal(check.rules.length, 3)
+    assert.equal(check.rules[0].language, 'en')
+    assert.equal(check.rules[1].language, undefined)
+
+    const en = filterReplacementsByLanguage(check.rules, 'en-US')
+    assert.equal(en.length, 2, 'global + en rules apply to English sentences')
+    const zh = filterReplacementsByLanguage(check.rules, 'zh-CN')
+    assert.equal(zh.length, 1, 'only the global rule applies to Chinese sentences')
+    assert.equal(filterReplacementsByLanguage(check.rules, undefined).length, 1)
+
+    const bad = validateReplacements([{ from: ['x'], to: 'y', language: 'fr' }])
+    assert.equal(bad.ok, false)
+    assert.match(bad.error, /language must be one of zh\/en\/ja\/ko/)
+  })
+
   it('validates rule schema and enforces UTF-8 byte payload cap on multibyte CJK rules', () => {
     assert.equal(REPLACEMENTS_MAX_PAYLOAD_BYTES, 12000)
     assert.equal(validateReplacements('not-an-array').ok, false)

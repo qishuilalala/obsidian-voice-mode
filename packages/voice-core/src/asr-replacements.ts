@@ -12,7 +12,17 @@ export interface AsrReplacement {
   from: string[]
   /** Desired canonical spelling. */
   to: string
+  /**
+   * Optional language scope (P1-2): 'zh' | 'en' | 'ja' | 'ko'. Undefined = applies to all
+   * languages. Read-aloud filters scoped rules by the sentence language.
+   */
+  language?: AsrReplacementLanguage
 }
+
+/** Supported language scopes for replacement rules. */
+export type AsrReplacementLanguage = 'zh' | 'en' | 'ja' | 'ko'
+
+const REPLACEMENT_LANGUAGES: ReadonlyArray<string> = ['zh', 'en', 'ja', 'ko']
 
 export type AsrReplacer = (text: string, countHit?: boolean) => string
 
@@ -31,6 +41,15 @@ const escapeRegExp = (s: string): string => s.replace(/[.*+?^${}()|[\]\\]/g, '\\
 /** Compute serialized UTF-8 byte length of a replacement rule table. */
 export function replacementsPayloadBytes(rules: unknown): number {
   return UTF8_ENCODER.encode(JSON.stringify(rules ?? [])).length
+}
+
+/** Keep global rules plus rules scoped to the given language (or its prefix, e.g. zh-CN). */
+export function filterReplacementsByLanguage(
+  rules: ReadonlyArray<AsrReplacement>,
+  language: string | undefined,
+): AsrReplacement[] {
+  const family = (language ?? '').trim().toLowerCase().split('-')[0]
+  return rules.filter((rule) => !rule.language || (family.length > 0 && rule.language === family))
 }
 
 /** Validate structure and UTF-8 payload size of an untrusted replacement table. */
@@ -64,7 +83,19 @@ export function validateReplacements(rules: unknown): ValidateReplacementsResult
     if (from.length === 0) {
       return { ok: false, error: `rule[${i}].from must contain at least one non-empty spelling` }
     }
-    normalized.push({ from, to: rawTo })
+    const rawLanguage = (item as { language?: unknown }).language
+    let language: AsrReplacementLanguage | undefined
+    if (rawLanguage !== undefined && rawLanguage !== null && rawLanguage !== '') {
+      if (typeof rawLanguage !== 'string' || !REPLACEMENT_LANGUAGES.includes(rawLanguage)) {
+        return { ok: false, error: `rule[${i}].language must be one of zh/en/ja/ko` }
+      }
+      language = rawLanguage as AsrReplacementLanguage
+    }
+    normalized.push({
+      from,
+      to: rawTo,
+      ...(language ? { language } : {}),
+    })
   }
 
   const bytes = replacementsPayloadBytes(normalized)
