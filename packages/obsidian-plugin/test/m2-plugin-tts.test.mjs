@@ -858,3 +858,62 @@ describe("DesktopModelManager M2 vitsReady and downloadVitsStack()", () => {
     }
   });
 });
+
+
+describe("SpeechPlayer long-note backpressure (D-0012 A)", () => {
+  it("feeds 300 sentences in bounded batches without dropping the tail", async () => {
+    const utterances = [];
+    class MockUtterance {
+      constructor(text) {
+        this.text = text;
+        this.rate = 1;
+        this.lang = "";
+        this.voice = null;
+        this.onend = null;
+        this.onerror = null;
+      }
+    }
+    const mockWindow = {
+      SpeechSynthesisUtterance: MockUtterance,
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      speechSynthesis: {
+        paused: false,
+        getVoices: () => [],
+        pause: () => undefined,
+        resume: () => undefined,
+        speak: (utterance) => {
+          utterances.push(utterance);
+        },
+        cancel: () => undefined,
+      },
+      URL,
+      Audio: class {},
+    };
+
+    const player = new SpeechPlayer(
+      { engine: "system", voice: "", rate: 1.0, language: "zh-CN" },
+      {},
+      () => mockWindow,
+    );
+    const sentences = Array.from({ length: 300 }, (_, index) => `Sentence number ${index + 1}.`);
+    assert.equal(player.speakSentences(sentences), 300);
+
+    let played = 0;
+    const deadline = Date.now() + 15_000;
+    while (played < 300 && Date.now() < deadline) {
+      const utterance = utterances.shift();
+      if (!utterance) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        continue;
+      }
+      utterance.onend?.();
+      played += 1;
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    assert.equal(played, 300, `expected the full tail to play, got ${played}`);
+    assert.equal(player.isActive, false);
+    await player.dispose();
+  });
+});

@@ -475,6 +475,14 @@ export class SpeechPlayer {
   private readonly hooks: SpeechPlayerHooks;
   private config: SpeechPlayerConfig;
   private fallbackNotifiedForEngine: TtsEngineKind | null = null;
+  /**
+   * Long-note backpressure (D-0012 A): sentences not yet enqueued. The queue is
+   * fed in bounded batches so a long note never overflows and its tail is never
+   * dropped; `pendingCount` is checked at every playback start.
+   */
+  private pendingSentences: string[] = [];
+  private static readonly QUEUE_BATCH = 200;
+  private static readonly QUEUE_LOW_WATER = 80;
 
   constructor(
     initialConfig: SpeechPlayerConfig,
@@ -492,7 +500,10 @@ export class SpeechPlayer {
       maxQueueSize: options.maxQueueSize ?? DEFAULT_MAX_QUEUE_SIZE,
       overflowPolicy: "drop-newest",
       onStateChange: (state) => this.hooks.onStateChange?.(state),
-      onPlayStart: (text) => this.hooks.onSentenceStart?.(text),
+      onPlayStart: (text) => {
+        this.hooks.onSentenceStart?.(text);
+        this.refillQueue();
+      },
       onDrop: (droppedText, reason) => this.hooks.onDrop?.(droppedText, reason),
       onError: (err, text) => this.hooks.onError?.(err, text),
     });
@@ -543,15 +554,37 @@ export class SpeechPlayer {
     return kind === "system" || this.engines.has(kind);
   }
 
+  /**
+   * Queue a (possibly long) note for reading. Sentences are fed to the playback
+   * queue in bounded batches with backpressure, so the tail is never dropped.
+   * Returns the total number of accepted sentences (queued or waiting to be queued).
+   */
   speakSentences(sentences: readonly string[]): number {
     this.fallbackNotifiedForEngine = null;
-    let queued = 0;
+    this.pendingSentences = [];
     for (const sentence of sentences) {
       const trimmed = sentence.trim();
-      if (!trimmed) {
-        continue;
+      if (trimmed) {
+        this.pendingSentences.push(trimmed);
       }
-      if (this.queue.enqueue(trimmed)) {
+    }
+    const total = this.pendingSentences.length;
+    this.refillQueue();
+    return total;
+  }
+
+  /** Feed the next batch while the playback queue is below its low-water mark. */
+  private refillQueue(): number {
+    if (this.pendingSentences.length === 0) {
+      return 0;
+    }
+    if (this.queue.state !== "idle" && this.queue.pendingCount > SpeechPlayer.QUEUE_LOW_WATER) {
+      return 0;
+    }
+    const batch = this.pendingSentences.splice(0, SpeechPlayer.QUEUE_BATCH);
+    let queued = 0;
+    for (const sentence of batch) {
+      if (this.queue.enqueue(sentence)) {
         queued += 1;
       }
     }
@@ -585,6 +618,7 @@ export class SpeechPlayer {
   }
 
   cancel(): void {
+    this.pendingSentences = [];
     const activeEngine = this.engines.get(this.config.engine);
     activeEngine?.interrupt?.();
     this.queue.cancel();
