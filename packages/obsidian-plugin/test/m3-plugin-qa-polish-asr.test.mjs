@@ -299,6 +299,7 @@ const {
   toSecretId,
 } = await import("../src/settings.ts");
 const { VoiceModeSettingTab } = await import("../src/settings-tab.ts");
+const { ModelGuideModal } = await import("../src/model-guide-modal.ts");
 const { default: VoiceModePlugin } = await import("../src/main.ts");
 const {
   MAX_NOTE_CONTEXT_CHARS,
@@ -1550,3 +1551,43 @@ describe("End-to-end integration: CloudDictationSession + OpenAiCompatAsrTranspo
     }
   });
 });
+
+describe("ModelGuideModal (P0-4 first-run download guide)", () => {
+  it("explains the one-time download, reports progress, completes and can be skipped", async () => {
+    const events = [];
+    const progresses = [];
+    const modal = new ModelGuideModal({}, {
+      kind: "vits",
+      download: async (onProgress) => {
+        onProgress({ percent: 42 });
+        progresses.push(42);
+        events.push("downloaded");
+        return { ready: true };
+      },
+      onSkip: () => events.push("skipped"),
+    });
+    modal.open();
+    assert.match(modal.titleEl.textContent, /Download the local speech model|下载本地语音模型/);
+    assert.ok(hasText(modal.contentEl, "Download now") || hasText(modal.contentEl, "立即下载"));
+    assert.ok(hasText(modal.contentEl, "Use system speech for now") || hasText(modal.contentEl, "暂时使用系统语音"));
+
+    const downloadButton = findButtonByText(modal.contentEl, "Download now") ?? findButtonByText(modal.contentEl, "立即下载");
+    downloadButton.trigger("click");
+    await new Promise((resolve) => setTimeout(resolve, 50));
+    assert.deepEqual(progresses, [42]);
+    assert.ok(events.includes("downloaded"));
+    assert.ok(hasText(modal.contentEl, "Download complete.") || hasText(modal.contentEl, "下载完成。"));
+
+    const skipModal = new ModelGuideModal({}, {
+      kind: "dictation",
+      download: async () => ({}),
+      onSkip: () => events.push("skipped"),
+    });
+    skipModal.open();
+    assert.match(skipModal.titleEl.textContent, /Download the offline dictation models|下载离线听写模型/);
+    (findButtonByText(skipModal.contentEl, "Use system speech for now") ?? findButtonByText(skipModal.contentEl, "暂时使用系统语音")).trigger("click");
+    assert.ok(events.includes("skipped"));
+    assert.equal(skipModal.isOpen, false);
+  });
+});
+

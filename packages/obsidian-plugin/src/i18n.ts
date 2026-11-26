@@ -250,6 +250,15 @@ const simplifiedChinese = {
   "Invalid replacement dictionary: {0}.": "词汇替换规则无效：{0}。",
   "No custom vocabulary rules configured yet.": "尚未添加自定义词汇规则。",
   "Match voice language per sentence": "按句自动匹配音色语言",
+  "Download the local speech model": "下载本地语音模型",
+  "Download the offline dictation models": "下载离线听写模型",
+  "This is a one-time download (about 200 MB) stored outside the vault. After it finishes, local speech works fully offline.":
+    "这是一次性下载（约 200 MB），保存在 Vault 之外。完成后本地语音可完全离线工作。",
+  "Download now": "立即下载",
+  "Use system speech for now": "暂时使用系统语音",
+  "Downloading… {0}%": "下载中… {0}%",
+  "Download complete.": "下载完成。",
+  "Download failed: {0}": "下载失败：{0}",
   "For Kokoro voices, switch to a matching-language voice when the note mixes Chinese and English.":
     "对 Kokoro 音色：当笔记中英混排时，按句子语言自动切换音色。",
   "Pronunciation dictionary (read-aloud)": "发音词典（朗读）",

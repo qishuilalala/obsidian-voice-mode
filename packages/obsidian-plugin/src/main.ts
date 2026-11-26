@@ -65,6 +65,7 @@ import {
   detectDesktopOsHint,
   type VoiceModePluginHost,
 } from "./settings-tab.ts";
+import { ModelGuideModal } from "./model-guide-modal.ts";
 import { SpeechPlayer } from "./speech-player.ts";
 import {
   VoiceQaModal,
@@ -217,6 +218,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private startingDictation = false;
   private dictationStartEpoch = 0;
   private readAloudStartEpoch = 0;
+  /** P0-4: only one inline model-download guide per session. */
+  private modelGuideShown = false;
   private settingsWriteEpoch = 0;
   private readingNotePath: string | null = null;
   /** Sentence list and next index of the current run (P4 resume). */
@@ -671,6 +674,21 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         this.downloadAbortController = null;
       }
     }
+  }
+
+  /** P0-4: open the inline one-time model-download guide (once per session). */
+  private showModelGuide(kind: "vits" | "dictation"): void {
+    if (this.modelGuideShown) {
+      return;
+    }
+    this.modelGuideShown = true;
+    new ModelGuideModal(this.app, {
+      kind,
+      download: (onProgress) =>
+        kind === "vits"
+          ? this.startVitsModelDownload(onProgress)
+          : this.startModelDownload(onProgress),
+    }).open();
   }
 
   async startVitsModelDownload(
@@ -2039,6 +2057,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           t("Offline dictation models are not installed yet. Open Voice Mode settings to download and verify them."),
           7000,
         );
+        this.showModelGuide("dictation");
         return;
       }
 
@@ -2514,6 +2533,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
             "Optional local VITS model is not installed yet. Download it in Voice Mode settings or switch speech engine to system.",
           ),
         );
+        this.showModelGuide("vits");
         return;
       }
     }
@@ -2618,6 +2638,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         new Notice(
           t("Optional local VITS model is not installed yet. Download it in Voice Mode settings or switch speech engine to system."),
         );
+        this.showModelGuide("vits");
         return;
       }
     }
