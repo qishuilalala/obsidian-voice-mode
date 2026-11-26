@@ -341,6 +341,7 @@ export function cutHead(text: string, max: number): [string, string] {
   return [text.slice(0, idx), text.slice(idx)]
 }
 
+/** Incremental sentence segmenter for streaming LLM deltas (bounded tail, no lookbehind). */
 export class SentenceSegmenter {
   private rawBuffer = ''
   private readonly maxChars: number

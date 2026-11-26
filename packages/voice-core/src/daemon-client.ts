@@ -69,6 +69,7 @@ export type DaemonErrorCode =
   | 'aborted'
   | 'network'
 
+/** Daemon client failure with a stable code (network/unauthorized/aborted/bad_url). */
 export class DaemonClientError extends Error {
   readonly code: DaemonErrorCode
   readonly status?: number
@@ -194,6 +195,7 @@ function shouldFallback(err: DaemonClientError): boolean {
   return false
 }
 
+/** Loopback daemon client: health probing, TTS synthesis, buffered/streaming ASR, fallbacks. */
 export class DaemonClient {
   readonly asr: AsrTransport
   readonly tts: TtsEngine

@@ -48,6 +48,7 @@ export type AsrErrorCode =
   | 'aborted'
   | 'network'
 
+/** Typed ASR provider failure (timeout/status/parse) so hosts can map redacted messages to UI. */
 export class AsrProviderError extends Error {
   readonly code: AsrErrorCode
   readonly status?: number
@@ -368,6 +369,7 @@ interface InflightAsrHandle {
 
 // ── OpenAI-compatible `/audio/transcriptions` ASR transport ──────────────────
 
+/** OpenAI-compatible `/audio/transcriptions` transport with endpoint policies and redaction. */
 export class OpenAiCompatAsrTransport implements AsrTransport {
   readonly kind = 'openai-compat' as const
 

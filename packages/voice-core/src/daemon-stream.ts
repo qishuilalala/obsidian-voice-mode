@@ -60,6 +60,7 @@ function floatToInt16Le(samples: Float32Array): ArrayBuffer {
   return buffer
 }
 
+/** Streaming ASR client for the daemon WebSocket endpoint (ready/partial/final protocol). */
 export class DaemonStreamTranscriber {
   private readonly options: DaemonStreamTranscriberOptions
   private socket: DaemonStreamSocket | null = null

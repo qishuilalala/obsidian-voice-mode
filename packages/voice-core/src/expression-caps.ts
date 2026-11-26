@@ -27,14 +27,18 @@ export const EXPRESSION_FACETS = [
   'spell',
 ] as const
 
+/** One expression dimension the capability contract can describe (13 facets). */
 export type ExpressionFacet = (typeof EXPRESSION_FACETS)[number]
 
 /** How strongly an engine can render emotion. */
+/** How an engine can express emotion: not at all, via prompt instructions, or graded styles. */
 export type EmotionSupport = 'none' | 'instructions' | 'graded'
 
 /** Semantic degradation behaviour; hosts localize it for their UI. */
+/** What happens to an unsupported tag: dropped to plain text, ignored, or manual stop only. */
 export type DegradationBehavior = 'plain-text' | 'not-applied' | 'manual-stop'
 
+/** Per-engine expression capability contract (E1): supported facets, voices, limits. */
 export interface ExpressionCaps {
   engine: TtsEngineKind
   /** Number of selectable voices; 0 when the engine has no voice choice. */
@@ -46,11 +50,13 @@ export interface ExpressionCaps {
   notes?: string
 }
 
+/** Explicit degradation notice for an unsupported tag/facet (never silently dropped). */
 export interface ExpressionDegradation {
   facet: ExpressionFacet
   behavior: DegradationBehavior
 }
 
+/** Parsed tag analysis for a piece of text against a capability set. */
 export interface ExpressionAnalysis {
   supported: ExpressionFacet[]
   degraded: ExpressionDegradation[]

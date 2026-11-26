@@ -7,6 +7,7 @@ import type { AsrEngineKind, TtsEngineKind } from './engine-kind.ts'
 
 // ── Secret storage abstraction ───────────────────────────────────────────────
 
+/** Minimal host-provided secret store (Obsidian SecretStorage, test doubles, etc.). */
 export interface SecretStore {
   getSecret(id: string): Promise<string | null> | string | null
   setSecret(id: string, value: string): Promise<void> | void
@@ -15,6 +16,7 @@ export interface SecretStore {
 
 // ── Unified VAD / endpointing policy ─────────────────────────────────────────
 
+/** Timeouts and size caps applied to loopback/remote speech endpoints. */
 export interface EndpointPolicy {
   /** Silence duration in ms that ends an utterance (default: 1500). */
   silenceMs: number
@@ -61,6 +63,7 @@ export const ALLOWED_MODEL_HOSTNAMES = ['huggingface.co', 'hf.co', 'hf-mirror.co
 /** Short connectivity probe timeout (ms) preventing 420s stalls on unreachable mirrors. */
 export const MODEL_MIRROR_PROBE_TIMEOUT_MS = 8000
 
+/** One verified file inside a downloadable model bundle (pin SHA-256 + byte size). */
 export interface ModelFileSpec {
   /** Pinned upstream revision so SHA256 matches immutable content. */
   revision?: string
@@ -121,6 +124,7 @@ export function isSafeModelRel(rel: string, subdir?: string): boolean {
 
 // ── ASR & TTS engine contracts (Uint8Array / Float32Array) ───────────────────
 
+/** Result of one ASR finalization: text plus endpoint-detected language and duration. */
 export interface AsrTranscriptEvent {
   text: string
   isFinal: boolean
@@ -128,6 +132,7 @@ export interface AsrTranscriptEvent {
   durationMs?: number
 }
 
+/** Streaming ASR transport contract: start a session, push 16 kHz PCM, finalize. */
 export interface AsrTransport {
   readonly kind: AsrEngineKind
   start?(options?: {
@@ -145,12 +150,14 @@ export interface AsrTransport {
   close(): Promise<void>
 }
 
+/** Per-utterance TTS options (voice/rate/signal); engines ignore unsupported fields. */
 export interface TtsSynthOptions {
   voice?: string
   rate?: number
   signal?: AbortSignal
 }
 
+/** Synthesized audio: WAV bytes for WAV engines, JSON system payload (`text/plain`) for system speech. */
 export interface TtsSynthResult {
   /** Encoded audio bytes (WAV, MP3, OGG, etc.) — platform-neutral Uint8Array. */
   audio: Uint8Array
@@ -160,6 +167,7 @@ export interface TtsSynthResult {
   sampleRate?: number
 }
 
+/** Engine availability snapshot used for UI disclosure and mount decisions. */
 export interface TtsEngineStatus {
   engine: TtsEngineKind
   ready: boolean
@@ -171,6 +179,7 @@ export interface TtsEngineStatus {
   progress?: { file: string; percent: number }
 }
 
+/** A mounted TTS engine (kind + synthesize + lifecycle). */
 export interface TtsEngine {
   readonly kind: TtsEngineKind
   readonly mime: string

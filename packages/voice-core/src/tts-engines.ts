@@ -47,6 +47,7 @@ export type TtsErrorCode =
   | 'aborted'
   | 'network'
 
+/** Typed TTS provider failure with a stable code for fallback decisions. */
 export class TtsProviderError extends Error {
   readonly code: TtsErrorCode
   readonly status?: number
@@ -528,6 +529,7 @@ abstract class HttpTtsEngineBase implements TtsEngine {
 
 // ── OpenAI-compatible `/audio/speech` engine ─────────────────────────────────
 
+/** OpenAI-compatible speech synthesis engine (7 built-in presets + custom endpoint). */
 export class OpenAiCompatTtsEngine extends HttpTtsEngineBase {
   readonly kind = 'openai-compat' as const
   readonly mime: string
@@ -692,6 +694,7 @@ function formatMimoSpeedPrompt(rate: number): string {
   return `Please speak at a slower pace (${formatted}x speed，语速放慢至约 ${formatted} 倍).`
 }
 
+/** Xiaomi MiMo speech synthesis engine (BYOK, emotion via instructions). */
 export class MimoTtsEngine extends HttpTtsEngineBase {
   readonly kind = 'mimo' as const
   readonly mime: string

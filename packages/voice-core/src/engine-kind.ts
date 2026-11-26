@@ -9,6 +9,7 @@ export const ASR_ENGINE_KINDS = [
   'daemon',
 ] as const
 
+/** Recognition engine ids (`system` browser recognizer, local WASM, cloud endpoints, daemon). */
 export type AsrEngineKind = (typeof ASR_ENGINE_KINDS)[number]
 
 export const LOCAL_ASR_ENGINE_KINDS = ['sensevoice-wasm', 'zipformer-wasm', 'daemon'] as const
@@ -36,6 +37,7 @@ export const TTS_ENGINE_KINDS = [
   'mimo',
 ] as const
 
+/** Speech synthesis engine ids (system, local VITS/Kokoro, cloud providers, daemon). */
 export type TtsEngineKind = (typeof TTS_ENGINE_KINDS)[number]
 
 export const LOCAL_TTS_ENGINE_KINDS = ['system', 'vits-wasm', 'kokoro-daemon'] as const
@@ -78,6 +80,7 @@ export const LLM_PRESET_IDS = [
   'custom',
 ] as const
 
+/** BYOK LLM preset ids used by the voice question/answer path. */
 export type LlmPresetId = (typeof LLM_PRESET_IDS)[number]
 
 export function asLlmPresetId(value: unknown): LlmPresetId {
