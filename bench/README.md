@@ -5,7 +5,7 @@
 ## 现状（骨架版）
 
 - **C1 合成语料**：确定性合成信号，只验证链路（环境采集、报告生成、schema），**不产出 CER**。
-- **C2 公开小样**：AISHELL-1 抽 20–30 条，只登记 URL + SHA256 + 许可，不入库；缓存缺失时跳过。
+- **C2 公开小样**：AISHELL-1 抽 20–30 条，只登记 URL + SHA256 + 许可，不入库；缓存缺失时跳过。准备方式：下载并抽样到 `bench/.cache/c2-aishell1-30/`（每段可附同名 `.txt` 参考文本），运行 `node bench/prepare-c2.mjs` 登记 SHA256。
 - **C3 私人录音**：不入库，只提交派生统计（后续实现）。
 
 真实 CER/首音/打断指标需要模型接入（P2）；本骨架先保证报告链路与口径一致。
@@ -17,6 +17,7 @@ pnpm run bench:smoke                          # C1 链路自检（CI/manual）
 node bench/run.mjs --corpus c1 --out .scratch/bench.json
 node bench/run.mjs --product obsidian --corpus c2 --out .scratch/bench-c2.json
 node bench/run.mjs --corpus c1 --expression --out .scratch/bench-expression.json  # E5 人工评分模板
+node bench/prepare-c2.mjs   # C2 语料准备（扫描 bench/.cache/c2-aishell1-30/ 并登记 SHA256；不下载）
 ```
 
 前 2 周为 `report-only`：不拦截，只出报告。
