@@ -69,8 +69,8 @@ jobs:
       - name: Install dependencies (frozen lockfile)
         run: pnpm install --frozen-lockfile
 
-      - name: Bench smoke (C1 synthetic, report-only)
-        run: pnpm run bench:smoke
+      - name: Bench baseline regression (bench@1 schema validation)
+        run: pnpm run check:bench
 
   audit:
     name: Security Audit
