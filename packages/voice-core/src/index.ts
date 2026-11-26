@@ -197,3 +197,20 @@ export {
   type DaemonHealthResult,
   type DaemonClientOptions,
 } from './daemon-client.ts'
+
+export {
+  EXPRESSION_FACETS,
+  EXPRESSION_CAPS,
+  getExpressionCaps,
+  supportsFacet,
+  unsupportedFacets,
+  analyzeExpression,
+  selectableFacets,
+  coveredEngineKinds,
+  type ExpressionFacet,
+  type ExpressionCaps,
+  type EmotionSupport,
+  type DegradationBehavior,
+  type ExpressionDegradation,
+  type ExpressionAnalysis,
+} from './expression-caps.ts'
