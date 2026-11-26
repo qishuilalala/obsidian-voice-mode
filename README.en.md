@@ -81,7 +81,7 @@ Capabilities come from `@voice-mode/core`'s expression contract; unsupported fac
 | `openai-compat` | provider-dependent | Yes | provider-dependent | provider-dependent | Instructions (provider-dependent) |
 | `mimo` | 9 | Yes | provider-dependent | provider-dependent | Instructions |
 
-`<slow>` and `<fast>` scopes map to a per-segment rate multiplier on `system` speech (×0.85 / ×1.15); other scopes degrade as listed above.
+Expression tags (`<slow>`/`<fast>`/`<whisper>` …) are parsed by `@voice-mode/core` with declared degradation semantics; **the current Obsidian UI does not yet apply these tags to the engine** (text is read as-is; the tags themselves are never spoken).
 
 ---
 
