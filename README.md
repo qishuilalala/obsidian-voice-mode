@@ -80,6 +80,8 @@ Capabilities come from `@voice-mode/core`'s expression contract; unsupported fac
 | `openai-compat` | provider-dependent | Yes | provider-dependent | provider-dependent | Instructions (provider-dependent) |
 | `mimo` | 9 | Yes | provider-dependent | provider-dependent | Instructions |
 
+`<slow>` and `<fast>` scopes map to a per-segment rate multiplier on `system` speech (×0.85 / ×1.15); other scopes degrade as listed above.
+
 ---
 
 ## Privacy, Network Access & External Model Disclosure
@@ -90,6 +92,8 @@ In compliance with Obsidian Developer Policies, all network behavior, model down
 2. **Available dictation, read-aloud & voice Q&A commands**:
    - `Toggle voice dictation` / `Dictate single utterance` on desktop with `SenseVoice WASM` runs 100% locally in an isolated Web Worker with zero network calls. When `OpenAI-compatible` (`openai-compat`) is explicitly selected, 16 kHz utterance WAV audio is uploaded to your configured `/audio/transcriptions` endpoint. When left on `System speech recognition`, it falls back to host `SpeechRecognition` only if the host provides it (unavailable on desktop Electron without a Google Speech API key; on supporting browsers/WebViews, audio is transmitted by the host runtime to that browser/OS speech provider).
    - `Read selection or note aloud` defaults to host `window.speechSynthesis`, and supports optional local desktop `VITS WASM` (`100%` offline) or user-configured BYOK `OpenAI-compatible` / `MiMo` TTS endpoints.
+   - Long notes are queued to the playback engine with bounded batches and backpressure, so the tail is never dropped; `Pause or resume read-aloud`, `Skip current read-aloud sentence` and `Stop read-aloud` stay responsive.
+   - `Export read-aloud as WAV` renders the selection or note through a WAV-capable engine (local `VITS WASM` or `kokoro-daemon`) into a single file inside the vault; system speech is reported as non-exportable. `Resume read-aloud` continues from the last position of the same note.
    - `Ask AI about selection or note` and `Post-dictation LLM polish` are **disabled by default** (`enableVoiceQa: false`, `enableLlmPolish: false`). Only when enabled do they send the active selection (or bounded active note up to `24,000` chars) and question, or a single dictated utterance for 4-guard cleanup, to your configured LLM endpoint.
 3. **Explicit user-triggered model downloads (Desktop, Implemented in M1/M2)**:
    - Desktop offline models are downloaded **only after explicit user action** in Settings from disclosed HTTPS hosts: model weights (`Silero VAD`, `SenseVoice int8`, optional `VITS`) from `https://huggingface.co` or optional mirror `https://hf-mirror.com`, and the `sherpa-onnx@2.0.2` WASM runtime (`Apache-2.0`) from `https://registry.npmjs.org` or `https://registry.npmmirror.com` (`cdn.npmmirror.com`), all verified against pinned **SHA256** checksums and hop-by-hop redirect allowlists.
