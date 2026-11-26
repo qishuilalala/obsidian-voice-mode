@@ -111,6 +111,17 @@ In compliance with Obsidian Developer Policies, all network behavior, model down
 
 ---
 
+## Troubleshooting
+
+| Symptom | Fix |
+| --- | --- |
+| Nothing is spoken | Check the OS volume and that the selected engine works in Settings → Voice input/Read aloud. On Android WebViews without `speechSynthesis`, switch to a BYOK TTS provider. |
+| Dictation starts but produces no text | Grant microphone permission; on mobile, local WASM models are disabled by design — use the browser recognizer or a cloud ASR endpoint. |
+| Model download fails or stalls | Retry, switch **Model download host** to the fallback mirror (`hf-mirror.com`), or clear cached models and download again. |
+| BYOK request fails | Verify the endpoint URL, the saved key (SecretStorage), and the provider's CORS policy; loopback/local servers are allowed over `http://`. |
+| `kokoro-daemon` requests fail | Confirm the daemon is running (`voice-daemon models status`) and the token file exists; the plugin falls back to system speech within 1 s. |
+| Reporting a bug | Run **Copy voice runtime status** / **Check voice runtime status** and paste the snapshot into the issue. |
+
 ## Local Development & Verification
 
 Requires **Node.js `>= 22.18.0`** (workspace tests import `.ts` directly via Node native type-stripping; CI runs Node 22) and **`pnpm@12.21.0`**:
