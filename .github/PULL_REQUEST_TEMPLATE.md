@@ -24,5 +24,5 @@ Run `pnpm run check:all` locally and note the exact environment tested:
 
 - [ ] No plaintext secrets stored in `data.json` or logged to console (uses Obsidian `SecretStorage`)
 - [ ] No model binaries, recordings, credentials, or `main.js` committed to git
-- [ ] No unverified feature claims added to `README.md`, `README.zh-CN.md`, or `docs/rules/STATE.md`
+- [ ] No unverified feature claims added to `README.md`, `README.en.md`, or `docs/rules/STATE.md`
 - [ ] Any external URLs, model sources, or permissions are disclosed in `README.md` and `SECURITY.md`

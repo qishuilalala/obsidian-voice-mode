@@ -48,7 +48,7 @@ pnpm run check:all              # 依次编译共享包、检查类型、检查�
 
 | 文档 | 用途 |
 | --- | --- |
-| [README.zh-CN.md](README.zh-CN.md) | 从源码安装，第一次听写和朗读 |
+| [README.md](README.md) | 从源码安装，第一次听写和朗读（中文为主；英文见 README.en.md） |
 | [GLOSSARY.md](GLOSSARY.md) / [CODING_STANDARDS.md](CODING_STANDARDS.md) | 领域词典与主观判断编码/审查规范 |
 | [docs/rules/STATE.md](docs/rules/STATE.md) | 当前阶段恢复点：精确区分已落地与未对外发布项 |
 | [docs/plan/master-plan.md](docs/plan/master-plan.md) | 实测基准、三波开源矩阵与 M0–M6 规划 |

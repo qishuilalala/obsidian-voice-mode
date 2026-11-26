@@ -33,7 +33,7 @@ pnpm run check:all
 
 ## Engineering & Review Standards / 工程与评审纪律
 
-- **Honest status & evidence**: Do not claim a capability is working or verified in `README.md`, `README.zh-CN.md`, or `docs/rules/STATE.md` unless it has passed the corresponding real-machine checks in [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md).
+- **Honest status & evidence**: Do not claim a capability is working or verified in `README.md`, `README.en.md`, or `docs/rules/STATE.md` unless it has passed the corresponding real-machine checks in [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md).
 - **Real audio & model regressions**: Unit tests with mocks do **not** prove acoustic quality or WASM/ONNX decoding equivalence. Runtime upgrades (e.g., `sherpa-onnx`, `onnxruntime-web`, or audio pipeline changes) require documented real-device verification.
 - **Obsidian policy hygiene**:
   - Never use `innerHTML` or unescaped HTML injection; use Obsidian DOM helpers (`createEl`, `createDiv`, `setText`).
