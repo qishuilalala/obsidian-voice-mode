@@ -29,7 +29,7 @@ export interface SpeechPlayerConfig {
 
 export interface SpeechPlayerHooks {
   onStateChange?: (state: PlaybackQueueState) => void;
-  onSentenceStart?: (sentence: string) => void;
+  onSentenceStart?: (sentence: string, index: number, total: number) => void;
   onDrop?: (droppedText: string, reason: "overflow") => void;
   onEngineFallback?: (requested: TtsEngineKind, fallback: "system") => void;
   onError?: (error: unknown, sentence: string) => void;
@@ -492,6 +492,9 @@ export class SpeechPlayer {
    * dropped; `pendingCount` is checked at every playback start.
    */
   private pendingSentences: string[] = [];
+  /** Ordered sentence list and cursor for read-aloud progress (index/total). */
+  private playbackSentences: string[] = [];
+  private playbackIndex = -1;
   private static readonly QUEUE_BATCH = 200;
   private static readonly QUEUE_LOW_WATER = 80;
 
@@ -512,7 +515,9 @@ export class SpeechPlayer {
       overflowPolicy: "drop-newest",
       onStateChange: (state) => this.hooks.onStateChange?.(state),
       onPlayStart: (text) => {
-        this.hooks.onSentenceStart?.(text);
+        const found = this.playbackSentences.indexOf(text, this.playbackIndex + 1);
+        this.playbackIndex = found >= 0 ? found : this.playbackIndex + 1;
+        this.hooks.onSentenceStart?.(text, this.playbackIndex, this.playbackSentences.length);
         this.refillQueue();
       },
       onDrop: (droppedText, reason) => this.hooks.onDrop?.(droppedText, reason),
@@ -650,6 +655,8 @@ export class SpeechPlayer {
       }
     }
     const total = this.pendingSentences.length;
+    this.playbackSentences = this.pendingSentences.slice();
+    this.playbackIndex = -1;
     this.refillQueue();
     return total;
   }
@@ -700,6 +707,8 @@ export class SpeechPlayer {
 
   cancel(): void {
     this.pendingSentences = [];
+    this.playbackSentences = [];
+    this.playbackIndex = -1;
     const activeEngine = this.engines.get(this.config.engine);
     activeEngine?.interrupt?.();
     this.queue.cancel();

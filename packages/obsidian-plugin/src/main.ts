@@ -246,7 +246,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         onStateChange: (state) => {
           this.handlePlaybackStateChange(state);
         },
-        onSentenceStart: (sentence) => {
+        onSentenceStart: (sentence, index, total) => {
           this.activeReadAloudIndex += 1;
           if (this.readingNotePath) {
             this.settings.readAloudResume = {
@@ -255,7 +255,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
             };
             void this.saveSettings();
           }
-          this.showSubtitleOverlay(t("Reading aloud"), sentence, undefined, true);
+          const progress = total > 1 ? ` (${index + 1}/${total})` : "";
+          this.showSubtitleOverlay(t("Reading aloud") + progress, sentence, undefined, true);
         },
         onEngineFallback: (requested) => {
           if (requested === "kokoro-daemon") {

@@ -962,3 +962,65 @@ describe("SpeechPlayer WAV export (P4 / D-0012 A)", () => {
     await player.dispose();
   });
 });
+
+
+describe("SpeechPlayer read-aloud progress (P4)", () => {
+  it("reports the sentence index and total through onSentenceStart", async () => {
+    const utterances = [];
+    class MockUtterance {
+      constructor(text) {
+        this.text = text;
+        this.rate = 1;
+        this.lang = "";
+        this.voice = null;
+        this.onend = null;
+        this.onerror = null;
+      }
+    }
+    const mockWindow = {
+      SpeechSynthesisUtterance: MockUtterance,
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      speechSynthesis: {
+        paused: false,
+        getVoices: () => [],
+        pause: () => undefined,
+        resume: () => undefined,
+        speak: (utterance) => {
+          utterances.push(utterance);
+        },
+        cancel: () => undefined,
+      },
+      URL,
+      Audio: class {},
+    };
+    const started = [];
+    const player = new SpeechPlayer(
+      { engine: "system", voice: "", rate: 1.0, language: "zh-CN" },
+      {
+        onSentenceStart: (text, index, total) => {
+          started.push({ text, index, total });
+        },
+      },
+      () => mockWindow,
+    );
+
+    player.speakSentences(["First sentence.", "Second sentence."]);
+    const deadline = Date.now() + 10_000;
+    while (started.length < 2 && Date.now() < deadline) {
+      const utterance = utterances.shift();
+      if (!utterance) {
+        await new Promise((resolve) => setTimeout(resolve, 0));
+        continue;
+      }
+      utterance.onend?.();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    assert.deepEqual(started, [
+      { text: "First sentence.", index: 0, total: 2 },
+      { text: "Second sentence.", index: 1, total: 2 },
+    ]);
+    await player.dispose();
+  });
+});
