@@ -1363,12 +1363,14 @@ export class VoiceModeSettingTab extends PluginSettingTab {
           type: "text",
           value: rule.from.join(", "),
           placeholder: t("Spoken aliases (comma-separated)"),
+          attr: { "aria-label": t("Spoken aliases (comma-separated)") },
         });
-        row.createSpan({ cls: "vm-replacement-arrow", text: "->" });
+        row.createSpan({ cls: "vm-replacement-arrow", text: "->", attr: { "aria-hidden": "true" } });
         const toInput = row.createEl("input", {
           type: "text",
           value: rule.to,
           placeholder: t("Replacement term"),
+          attr: { "aria-label": t("Replacement term") },
         });
         let languageInput: HTMLInputElement | null = null;
         if (opts.withLanguage) {
@@ -1376,9 +1378,13 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             type: "text",
             value: rule.language ?? "",
             placeholder: t("Language (zh/en/ja/ko, empty = all)"),
+            attr: { "aria-label": t("Language (zh/en/ja/ko, empty = all)") },
           });
         }
-        const removeBtn = row.createEl("button", { text: t("Remove") });
+        const removeBtn = row.createEl("button", {
+          text: t("Remove"),
+          attr: { "aria-label": t("Remove") },
+        });
 
         const applyEdit = async (): Promise<void> => {
           const nextAliases = parseAliasList(fromInput.value);
@@ -1439,19 +1445,26 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     const newFromInput = addRow.createEl("input", {
       type: "text",
       placeholder: t("Aliases (e.g. 光四点, 光4点)"),
+      attr: { "aria-label": t("Aliases (e.g. 光四点, 光4点)") },
     });
     addRow.createSpan({ cls: "vm-replacement-arrow", text: "->" });
     const newToInput = addRow.createEl("input", {
       type: "text",
       placeholder: t("Target term (e.g. Obsidian)"),
+      attr: { "aria-label": t("Target term (e.g. Obsidian)") },
     });
     const newLanguageInput = opts.withLanguage
       ? addRow.createEl("input", {
           type: "text",
           placeholder: t("Language (zh/en/ja/ko, empty = all)"),
+          attr: { "aria-label": t("Language (zh/en/ja/ko, empty = all)") },
         })
       : null;
-    const addBtn = addRow.createEl("button", { cls: "mod-cta", text: t("Add rule") });
+    const addBtn = addRow.createEl("button", {
+      cls: "mod-cta",
+      text: t("Add rule"),
+      attr: { "aria-label": t("Add rule") },
+    });
 
     const submitNewRule = async (): Promise<void> => {
       const fromAliases = parseAliasList(newFromInput.value);

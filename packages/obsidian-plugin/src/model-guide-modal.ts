@@ -54,6 +54,8 @@ export class ModelGuideModal extends Modal {
       this.options.onSkip?.();
       this.close();
     });
+    // A11y: move focus to the primary action so keyboard users can act immediately.
+    downloadButton.focus();
   }
 
   private async runDownload(): Promise<void> {

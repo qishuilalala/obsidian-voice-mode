@@ -449,6 +449,15 @@ describe("Obsidian interface language", () => {
     assert.ok(findButtonByText(tab.containerEl, "下载或校验模型"));
     assert.ok(findButtonByText(tab.containerEl, "添加规则"));
     assert.ok(hasText(tab.containerEl, "发音词典（朗读）"));
+    const ariaLabels = [];
+    const collectAria = (el) => {
+      const label = el?.attrs?.get?.("aria-label");
+      if (label) ariaLabels.push(label);
+      for (const child of el?.children ?? []) collectAria(child);
+    };
+    collectAria(tab.containerEl);
+    assert.ok(ariaLabels.length >= 2, "replacement editor controls expose aria-label");
+    assert.ok(ariaLabels.some((label) => label.includes("Aliases") || label.includes("别名")));
     // The language-scope input is rendered only when rules exist (placeholder lives in attrs).
 
     const modal = new VoiceQaModal(app, { scope: "selection", text: "abc", truncated: true }, {});
