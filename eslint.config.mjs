@@ -116,6 +116,7 @@ export default defineConfig([
     "main.js",
     "coverage/**",
     ".scratch/**",
+    "bench/**",
     "esbuild.config.mjs",
     "eslint.config.mjs",
     "scripts/**",

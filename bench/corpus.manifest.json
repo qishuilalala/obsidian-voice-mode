@@ -1,0 +1,27 @@
+{
+  "version": 1,
+  "corpora": {
+    "c1": {
+      "id": "c1-synthetic",
+      "desc": "确定性合成信号：1s 440Hz 正弦 + 0.5s 静音，仅链路自检，无参考文本",
+      "source": "generated",
+      "license": "n/a",
+      "inRepo": false
+    },
+    "c2": {
+      "id": "c2-aishell1-30",
+      "desc": "AISHELL-1 test 抽取 20-30 条中文朗读（需人工抽样并缓存到 bench/.cache）",
+      "source": "https://www.openslr.org/33/",
+      "license": "研究用途，分发限制待核对",
+      "inRepo": false,
+      "sha256List": []
+    },
+    "c3": {
+      "id": "c3-private",
+      "desc": "私人真机录音（不入库，只提交派生统计）",
+      "source": "private",
+      "license": "private",
+      "inRepo": false
+    }
+  }
+}

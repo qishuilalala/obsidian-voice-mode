@@ -344,7 +344,7 @@ function getLineAtOffset(content, index) {
 }
 
 function checkRepoHygiene() {
-  const skipDirs = new Set(["node_modules", ".git", "dist", "coverage", ".scratch"]);
+  const skipDirs = new Set(["node_modules", ".git", "dist", "coverage", ".scratch", "bench"]);
   const skipFiles = new Set(["pnpm-lock.yaml", "main.js", ".DS_Store"]);
   const textExts = new Set([
     ".ts",

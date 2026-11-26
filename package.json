@@ -23,7 +23,8 @@
     "test": "pnpm run build:packages && pnpm -r run test",
     "check:release": "node scripts/check-release-gate.mjs",
     "check:all": "pnpm run build:packages && pnpm run typecheck && pnpm run lint && pnpm run test && pnpm run build && pnpm run check:release",
-    "version": "node scripts/version-bump.mjs"
+    "version": "node scripts/version-bump.mjs",
+    "bench:smoke": "node bench/run.mjs --corpus c1 --out .scratch/bench-smoke.json"
   },
   "devDependencies": {
     "@types/node": "^22.13.0",
