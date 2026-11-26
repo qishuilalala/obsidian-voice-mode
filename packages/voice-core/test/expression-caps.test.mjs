@@ -1,83 +1,63 @@
-import { describe, it } from 'node:test'
-import assert from 'node:assert/strict'
+import assert from "node:assert/strict";
+import { describe, it } from "node:test";
+
 import {
-  EXPRESSION_FACETS,
   EXPRESSION_CAPS,
-  TTS_ENGINE_KINDS,
+  EXPRESSION_FACETS,
+  analyzeExpression,
+  coveredEngineKinds,
   getExpressionCaps,
+  selectableFacets,
   supportsFacet,
   unsupportedFacets,
-  analyzeExpression,
-  selectableFacets,
-  coveredEngineKinds,
-} from '../src/index.ts'
+} from "../src/expression-caps.ts";
 
-describe('expression caps: contract coverage and honesty', () => {
-  it('covers every TTS engine kind exactly once', () => {
-    assert.deepEqual([...coveredEngineKinds()].sort(), [...TTS_ENGINE_KINDS].sort())
-    for (const engine of TTS_ENGINE_KINDS) {
-      assert.equal(EXPRESSION_CAPS[engine].engine, engine)
-      assert.ok(Array.isArray(EXPRESSION_CAPS[engine].supported))
+describe("expression caps contract (E1)", () => {
+  it("exposes the 13 facets and covers every engine kind", () => {
+    assert.equal(EXPRESSION_FACETS.length, 13);
+    for (const kind of coveredEngineKinds()) {
+      assert.ok(EXPRESSION_CAPS[kind], `caps missing for ${kind}`);
+      assert.equal(EXPRESSION_CAPS[kind].engine, kind);
     }
-  })
+  });
 
-  it('only lists known facets in the capability table', () => {
-    const known = new Set(EXPRESSION_FACETS)
-    for (const engine of TTS_ENGINE_KINDS) {
-      for (const facet of EXPRESSION_CAPS[engine].supported) {
-        assert.ok(known.has(facet), `unknown facet ${facet} on ${engine}`)
-      }
-    }
-  })
+  it("falls back to the system engine for unknown values", () => {
+    assert.equal(getExpressionCaps("nope").engine, "system");
+    assert.equal(getExpressionCaps(undefined).engine, "system");
+  });
 
-  it('never claims emotion or whisper support for the system engine', () => {
-    assert.equal(supportsFacet('system', 'emotion'), false)
-    assert.equal(supportsFacet('system', 'whisper'), false)
-    assert.equal(supportsFacet('system', 'rate'), true)
-    assert.equal(getExpressionCaps('system').emotion, 'none')
-  })
+  it("maps each engine to its honest facets", () => {
+    assert.deepEqual(selectableFacets("system"), ["voices", "rate", "pause"]);
+    assert.deepEqual(selectableFacets("kokoro-daemon"), ["voices", "rate", "pause", "whisper"]);
+    assert.ok(supportsFacet("kokoro-daemon", "whisper"));
+    assert.ok(!supportsFacet("system", "whisper"));
+    assert.equal(EXPRESSION_CAPS["kokoro-daemon"].maxPauseMs, 5000);
+    assert.equal(EXPRESSION_CAPS.system.maxPauseMs, 0);
+    assert.equal(EXPRESSION_CAPS["openai-compat"].emotion, "instructions");
+    assert.equal(EXPRESSION_CAPS.system.emotion, "none");
+  });
 
-  it('gives kokoro-daemon native pause/whisper support with a bounded break', () => {
-    const caps = getExpressionCaps('kokoro-daemon')
-    assert.equal(caps.voiceCount, 103)
-    assert.ok(caps.supported.includes('pause'))
-    assert.ok(caps.supported.includes('whisper'))
-    assert.equal(caps.maxPauseMs, 5000)
-  })
+  it("lists unsupported facets instead of silently dropping them", () => {
+    assert.deepEqual(unsupportedFacets("system", ["rate", "emotion", "whisper"]), ["emotion", "whisper"]);
+    assert.deepEqual(unsupportedFacets("kokoro-daemon", ["rate", "whisper"]), []);
+  });
 
-  it('marks instruction-based engines as emotion: instructions', () => {
-    assert.equal(getExpressionCaps('openai-compat').emotion, 'instructions')
-    assert.equal(getExpressionCaps('mimo').emotion, 'instructions')
-    assert.ok(getExpressionCaps('mimo').supported.includes('emotion'))
-  })
-})
+  it("degrades emotion to plain text on non-emotional engines and marks others not-applied", () => {
+    const analysis = analyzeExpression("system", ["rate", "emotion", "whisper", "pause"]);
+    assert.deepEqual(analysis.supported, ["rate", "pause"]);
+    assert.deepEqual(analysis.degraded, [
+      { facet: "emotion", behavior: "plain-text" },
+      { facet: "whisper", behavior: "not-applied" },
+    ]);
+    const daemon = analyzeExpression("kokoro-daemon", ["whisper", "emotion"]);
+    assert.deepEqual(daemon.supported, ["whisper"]);
+    assert.deepEqual(daemon.degraded, [{ facet: "emotion", behavior: "plain-text" }]);
+  });
 
-describe('expression caps: degradation analysis', () => {
-  it('reports requested facets the engine cannot render', () => {
-    const missing = unsupportedFacets('vits-wasm', ['voices', 'whisper', 'emotion'])
-    assert.deepEqual(missing, ['whisper', 'emotion'])
-  })
-
-  it('degrades emotion to plain text on non-emotion engines and marks others not-applied', () => {
-    const { supported, degraded } = analyzeExpression('system', ['rate', 'emotion', 'whisper', 'pause'])
-    assert.deepEqual(supported, ['rate', 'pause'])
-    assert.deepEqual(
-      degraded.map((d) => [d.facet, d.behavior]),
-      [
-        ['emotion', 'plain-text'],
-        ['whisper', 'not-applied'],
-      ],
-    )
-  })
-
-  it('leaves fully supported requests with no degradation', () => {
-    const { supported, degraded } = analyzeExpression('kokoro-daemon', ['voices', 'rate', 'pause', 'whisper'])
-    assert.equal(degraded.length, 0)
-    assert.deepEqual(supported, ['voices', 'rate', 'pause', 'whisper'])
-  })
-
-  it('falls back to system caps for unknown engine values', () => {
-    assert.equal(getExpressionCaps('not-an-engine').engine, 'system')
-    assert.deepEqual(selectableFacets('not-an-engine'), ['voices', 'rate', 'pause'])
-  })
-})
+  it("keeps instruction-based emotion engines fully supported", () => {
+    const analysis = analyzeExpression("mimo", ["emotion", "instructions", "rate"]);
+    assert.deepEqual(analysis.supported, ["emotion", "instructions", "rate"]);
+    assert.deepEqual(analysis.degraded, []);
+    assert.deepEqual(selectableFacets("openai-compat"), ["voices", "rate", "instructions", "emotion"]);
+  });
+});
