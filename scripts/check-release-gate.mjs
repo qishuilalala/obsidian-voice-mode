@@ -182,7 +182,7 @@ function checkManifestAndVersions() {
     if (desc.length < 10 || desc.length > 250) {
       fail(`manifest.json description length (${desc.length}) must be between 10 and 250 characters.`);
     }
-    if (!/[.!?]$/.test(desc)) {
+    if (!/[.!?。！？]$/.test(desc)) {
       fail("manifest.json description must end with terminal punctuation (e.g. a period).");
     }
     if (/obsidian/i.test(desc)) {

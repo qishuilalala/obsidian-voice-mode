@@ -3,7 +3,7 @@
   "name": "Voice Mode",
   "version": "0.1.0",
   "minAppVersion": "1.11.4",
-  "description": "Offline-first bilingual voice dictation, Markdown-aware read-aloud, and optional BYOK voice Q&A.",
+  "description": "离线优先的双语语音听写、Markdown 感知朗读与可选 BYOK 语音问答。",
   "author": "qishuilalala",
   "authorUrl": "https://github.com/qishuilalala",
   "isDesktopOnly": false
