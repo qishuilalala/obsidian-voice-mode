@@ -364,6 +364,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     });
 
     this.addCommand({
+      id: "export-read-aloud-wav",
+      name: t("Export read-aloud as WAV"),
+      callback: () => {
+        void this.exportReadAloudWav();
+      },
+    });
+
+    this.addCommand({
       id: "ask-ai-about-note",
       name: t("Ask AI about selection or note"),
       callback: () => {
@@ -2407,6 +2415,59 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   commitDictatedText(text: string): void {
     if (!this.commitDictatedTextSilently(text)) {
       new Notice(t("No active editor or text input found for dictated text."));
+    }
+  }
+
+  /**
+   * Export the selection/note to a single WAV file using a WAV-producing engine
+   * (local VITS or voice-daemon). System speech has no PCM to export.
+   */
+  private async exportReadAloudWav(): Promise<void> {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    if (!view) {
+      new Notice(t("Open a note to export read-aloud audio."));
+      return;
+    }
+    const sentences = extractReadableText(view.editor, {
+      maxSentenceChars: this.settings.maxSentenceChars,
+      tablePolicy: this.settings.markdownTablePolicy,
+    });
+    if (sentences.length === 0) {
+      new Notice(t("No readable text found in the selection or note."));
+      return;
+    }
+    const effectiveTts = this.getEffectiveTtsEngine();
+    if (effectiveTts === "system") {
+      new Notice(
+        t("Export needs a WAV speech engine (local VITS or voice-daemon), not system speech."),
+      );
+      return;
+    }
+    this.syncSpeechPlayerEngines();
+    const player = this.speechPlayer;
+    if (!player) {
+      new Notice(t("Read-aloud is not currently active."));
+      return;
+    }
+    const progress = new Notice(t("Exporting {0} sentences...", sentences.length), 0);
+    try {
+      const result = await player.exportSentences(sentences);
+      progress.hide();
+      if (!result.wav) {
+        new Notice(t("Selected engine cannot export audio (no WAV output)."));
+        return;
+      }
+      const buffer = result.wav.buffer.slice(
+        result.wav.byteOffset,
+        result.wav.byteOffset + result.wav.byteLength,
+      ) as ArrayBuffer;
+      const base = view.file?.basename ?? "note";
+      const file = await this.app.vault.createBinary(`${base}-readaloud-${Date.now()}.wav`, buffer);
+      new Notice(t("Exported {0} sentences to {1}.", result.sentences, file.path));
+    } catch (err) {
+      progress.hide();
+      const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+      new Notice(t("Export failed: {0}", msg));
     }
   }
 

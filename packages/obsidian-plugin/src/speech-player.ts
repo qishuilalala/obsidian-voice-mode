@@ -1,4 +1,6 @@
 import {
+  decodeMonoPcm16Wav,
+  encodeMonoPcm16Wav,
   type TtsEngine,
   type TtsEngineKind,
   type TtsSynthOptions,
@@ -468,6 +470,15 @@ export class ObsidianAudioSink implements AudioSink {
  * preserves long-note ordering (`maxQueueSize: 2000`, `overflowPolicy: "drop-newest"`),
  * and reports fallback explicitly when a selected non-system engine is not mounted.
  */
+/** Result of `SpeechPlayer.exportSentences` (WAV export, D-0012 A). */
+export interface SpeechExportResult {
+  wav: Uint8Array | null;
+  sampleRate: number;
+  sentences: number;
+  skipped: number;
+  reason?: "cancelled" | "no-wav-engine" | "empty";
+}
+
 export class SpeechPlayer {
   private readonly queue: PlaybackQueue;
   private readonly sink: ObsidianAudioSink;
@@ -552,6 +563,76 @@ export class SpeechPlayer {
 
   hasRegisteredEngine(kind: TtsEngineKind): boolean {
     return kind === "system" || this.engines.has(kind);
+  }
+
+  /**
+   * Synthesize a note into one WAV file without playing it (P4 / D-0012 A).
+   * Only WAV-producing engines are exportable; sentences whose engine returns
+   * text/MP3 or a mismatched sample rate are skipped and reported.
+   */
+  async exportSentences(
+    sentences: readonly string[],
+    options: {
+      onProgress?: (done: number, total: number) => void;
+      signal?: AbortSignal;
+    } = {},
+  ): Promise<SpeechExportResult> {
+    const signal = options.signal ?? new AbortController().signal;
+    const list = sentences.map((sentence) => sentence.trim()).filter((sentence) => sentence.length > 0);
+    const chunks: Float32Array[] = [];
+    let sampleRate = 0;
+    let skipped = 0;
+
+    for (let index = 0; index < list.length; index++) {
+      if (signal.aborted) {
+        return { wav: null, sampleRate, sentences: chunks.length, skipped, reason: "cancelled" };
+      }
+      const result = await this.synthesizeSentence(list[index] ?? "", signal);
+      options.onProgress?.(index + 1, list.length);
+      if (!result || result.mime !== "audio/wav") {
+        skipped += 1;
+        continue;
+      }
+      const audio =
+        result.audio instanceof Uint8Array ? result.audio : new Uint8Array(result.audio);
+      const decoded = decodeMonoPcm16Wav(audio);
+      if (!decoded) {
+        skipped += 1;
+        continue;
+      }
+      if (sampleRate === 0) {
+        sampleRate = decoded.sampleRate;
+      }
+      if (decoded.sampleRate !== sampleRate) {
+        skipped += 1;
+        continue;
+      }
+      chunks.push(decoded.samples);
+    }
+
+    if (chunks.length === 0) {
+      return {
+        wav: null,
+        sampleRate,
+        sentences: 0,
+        skipped,
+        reason: skipped > 0 ? "no-wav-engine" : "empty",
+      };
+    }
+
+    const totalSamples = chunks.reduce((sum, chunk) => sum + chunk.length, 0);
+    const merged = new Float32Array(totalSamples);
+    let offset = 0;
+    for (const chunk of chunks) {
+      merged.set(chunk, offset);
+      offset += chunk.length;
+    }
+    return {
+      wav: encodeMonoPcm16Wav(merged, sampleRate),
+      sampleRate,
+      sentences: chunks.length,
+      skipped,
+    };
   }
 
   /**

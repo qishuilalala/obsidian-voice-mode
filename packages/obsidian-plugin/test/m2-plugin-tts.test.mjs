@@ -917,3 +917,48 @@ describe("SpeechPlayer long-note backpressure (D-0012 A)", () => {
     await player.dispose();
   });
 });
+
+
+describe("SpeechPlayer WAV export (P4 / D-0012 A)", () => {
+  it("merges WAV engine output into one file and joins decoded samples", async () => {
+    const { encodeMonoPcm16Wav, decodeMonoPcm16Wav } = await import("@voice-mode/core");
+    const first = encodeMonoPcm16Wav(new Float32Array([0.1, 0.2, 0.3]), 24000);
+    const second = encodeMonoPcm16Wav(new Float32Array([0.4, 0.5]), 24000);
+    const player = new SpeechPlayer(
+      { engine: "kokoro-daemon", voice: "", rate: 1.0, language: "zh-CN" },
+      {},
+      () => globalThis.window ?? {},
+    );
+    player.registerEngine({
+      kind: "kokoro-daemon",
+      async synthesize(text) {
+        return text.includes("second")
+          ? { audio: second, mime: "audio/wav" }
+          : { audio: first, mime: "audio/wav" };
+      },
+      async close() {},
+    });
+
+    const result = await player.exportSentences(["first sentence", "second sentence"]);
+    assert.equal(result.sentences, 2);
+    assert.equal(result.skipped, 0);
+    assert.equal(result.sampleRate, 24000);
+    assert.ok(result.wav, "export must produce a WAV");
+    const decoded = decodeMonoPcm16Wav(result.wav);
+    assert.ok(decoded);
+    assert.equal(decoded.samples.length, 5, "3 + 2 decoded samples must be joined");
+    await player.dispose();
+  });
+
+  it("reports no-wav-engine when the selected engine produces text (system speech)", async () => {
+    const player = new SpeechPlayer(
+      { engine: "system", voice: "", rate: 1.0, language: "zh-CN" },
+      {},
+      () => globalThis.window ?? {},
+    );
+    const result = await player.exportSentences(["hello"]);
+    assert.equal(result.wav, null);
+    assert.equal(result.reason, "no-wav-engine");
+    await player.dispose();
+  });
+});

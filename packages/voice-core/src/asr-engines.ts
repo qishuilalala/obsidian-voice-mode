@@ -114,6 +114,50 @@ export function resolveTranscriptionsEndpointUrl(baseUrl?: string): ResolvedAsrE
 }
 
 /**
+ * Decode a mono PCM16LE RIFF/WAVE buffer (as produced by `encodeMonoPcm16Wav`,
+ * or by local VITS/Kokoro engines) back into float samples. Returns `null` for
+ * non-WAV, stereo, or non-16-bit input so callers can skip unsupported chunks.
+ */
+export function decodeMonoPcm16Wav(input: Uint8Array): { samples: Float32Array; sampleRate: number } | null {
+  if (input.byteLength < 44) return null
+  const view = new DataView(input.buffer, input.byteOffset, input.byteLength)
+  const tag = (offset: number): string =>
+    String.fromCharCode(input[offset] ?? 0, input[offset + 1] ?? 0, input[offset + 2] ?? 0, input[offset + 3] ?? 0)
+  if (tag(0) !== 'RIFF' || tag(8) !== 'WAVE') return null
+
+  let offset = 12
+  let sampleRate = 0
+  let channels = 1
+  let bitsPerSample = 16
+  let dataStart = -1
+  let dataSize = 0
+  while (offset + 8 <= input.byteLength) {
+    const id = tag(offset)
+    const size = view.getUint32(offset + 4, true)
+    const body = offset + 8
+    if (id === 'fmt ') {
+      if (body + 16 > input.byteLength) return null
+      channels = view.getUint16(body + 2, true)
+      sampleRate = view.getUint32(body + 4, true)
+      bitsPerSample = view.getUint16(body + 14, true)
+    } else if (id === 'data') {
+      dataStart = body
+      dataSize = Math.min(size, input.byteLength - body)
+      break
+    }
+    offset = body + size + (size % 2)
+  }
+  if (dataStart < 0 || sampleRate <= 0 || bitsPerSample !== 16 || channels !== 1) return null
+
+  const count = Math.floor(dataSize / 2)
+  const samples = new Float32Array(count)
+  for (let i = 0; i < count; i++) {
+    samples[i] = view.getInt16(dataStart + i * 2, true) / 32768
+  }
+  return { samples, sampleRate }
+}
+
+/**
  * Encode mono Float32 PCM samples (`[-1, 1]` clamped, `NaN` -> `0`) into a
  * standard 44-byte RIFF/WAVE PCM16LE `Uint8Array`.
  */

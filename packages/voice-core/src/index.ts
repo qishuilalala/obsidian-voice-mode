@@ -171,6 +171,7 @@ export {
   AsrProviderError,
   resolveTranscriptionsEndpointUrl,
   encodeMonoPcm16Wav,
+  decodeMonoPcm16Wav,
   buildMultipartFormData,
   normalizeWhisperLanguage,
   OpenAiCompatAsrTransport,
