@@ -10,6 +10,8 @@ export interface SystemTtsSegment {
   whisper: boolean;
   preBreakMs: number;
   breakAfterMs: number;
+  /** Per-segment rate multiplier from `<slow>` / `<fast>` scopes (default 1). */
+  rateScale?: number;
 }
 
 export interface SystemTtsPayload {
@@ -55,6 +57,8 @@ export function buildSystemTtsSegments(
   const leadingBreak = computeLeadingBreakMs(rawText);
   return segments.map((seg, idx) => {
     const attached = Math.max(0, Math.min(5000, seg.preBreakMs ?? 0));
+    // `<slow>` / `<fast>` map to a per-segment rate multiplier on system speech.
+    const rateScale = seg.slow ? 0.85 : seg.fast ? 1.15 : 1;
     if (idx === 0 && leadingBreak > 0) {
       const pre = Math.min(leadingBreak, attached);
       return {
@@ -62,6 +66,7 @@ export function buildSystemTtsSegments(
         whisper: seg.whisper,
         preBreakMs: pre,
         breakAfterMs: Math.max(0, attached - pre),
+        rateScale,
       };
     }
     return {
@@ -69,6 +74,7 @@ export function buildSystemTtsSegments(
       whisper: seg.whisper,
       preBreakMs: 0,
       breakAfterMs: attached,
+      rateScale,
     };
   });
 }
@@ -275,7 +281,7 @@ export class BrowserAudioSink implements AudioSink {
       await this.speakSingleSystemSegment(
         seg.text,
         parsed.voice,
-        parsed.rate,
+        parsed.rate * (seg.rateScale ?? 1),
         seg.whisper,
         signal,
       );
