@@ -16,6 +16,7 @@
 pnpm run bench:smoke                          # C1 链路自检（CI/manual）
 node bench/run.mjs --corpus c1 --out .scratch/bench.json
 node bench/run.mjs --product obsidian --corpus c2 --out .scratch/bench-c2.json
+node bench/run.mjs --corpus c1 --expression --out .scratch/bench-expression.json  # E5 人工评分模板
 ```
 
 前 2 周为 `report-only`：不拦截，只出报告。

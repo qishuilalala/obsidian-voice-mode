@@ -12,6 +12,7 @@ const { values } = parseArgs({
     product: { type: 'string', default: 'obsidian' },
     corpus: { type: 'string', default: 'c1' },
     out: { type: 'string', default: '.scratch/bench-report.json' },
+    expression: { type: 'boolean', default: false },
   },
 })
 
@@ -60,6 +61,21 @@ function rmsOf(samples) {
   return Math.sqrt(sum / samples.length)
 }
 
+// E5: fixed text × mood grid for human expression rating (see bench/human-rating.md).
+const EXPRESSION_TEXTS = [
+  '今天天气很好，我们出去走走吧。',
+  '这件事我需要认真想一想。',
+  '别担心，一切都会好起来的。',
+  '这个方案的风险点有三个。',
+  'The quick brown fox jumps over the lazy dog.',
+  'Please review the pull request before Friday.',
+  '我记得你提过这个想法。',
+  '数据说明增长速度在放缓。',
+  '欢迎回来，路上辛苦了。',
+  '请把刚才那段再讲一遍。',
+]
+const EXPRESSION_MOODS = ['neutral', 'gentle', 'urgent']
+
 const metrics = {}
 const notes = []
 let envModel = 'n/a'
@@ -91,6 +107,19 @@ if (values.corpus === 'c1') {
   }
 } else {
   notes.push(`C3 私人录音不入库；派生统计在后续版本实现（当前 corpus=${values.corpus}）。`)
+}
+
+if (values.expression) {
+  metrics.expression = {
+    status: 'pending-human',
+    scale: 5,
+    dimensions: ['naturalness', 'emotion-fit', 'voice-consistency', 'barge-in-naturalness'],
+    texts: EXPRESSION_TEXTS,
+    moods: EXPRESSION_MOODS,
+    instructions:
+      'Double-blind rating per bench/human-rating.md (4 dimensions × 5-point scale); write results into metrics.expression.scores before comparing versions.',
+  }
+  notes.push('expression 为待人工评分模板；未评分前不得用于版本对比。')
 }
 
 const report = {

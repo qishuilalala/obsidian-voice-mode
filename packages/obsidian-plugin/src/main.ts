@@ -255,7 +255,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
             return;
           }
           new Notice(
-            t("Speech engine \"{0}\" is unavailable; falling back to system speech synthesis.", requested),
+            t("Speech engine \"{0}\" is unavailable; falling back to system speech synthesis (voice may change).", requested),
           );
         },
         onDrop: () => {

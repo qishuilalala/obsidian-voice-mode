@@ -9,7 +9,7 @@ const simplifiedChinese = {
   "Reading aloud": "正在朗读",
   "Voice error": "语音出错",
   "Local Kokoro voice daemon is not connected; falling back to system speech synthesis.": "未连接本地 Kokoro 语音服务，已切换到系统语音合成。",
-  "Speech engine \"{0}\" is unavailable; falling back to system speech synthesis.": "语音引擎“{0}”不可用，已切换到系统语音合成。",
+  "Speech engine \"{0}\" is unavailable; falling back to system speech synthesis (voice may change).": "语音引擎“{0}”不可用，已切换到系统语音合成（音色可能变化）。",
   "Selection exceeds the 2,000-sentence read-aloud queue limit; trailing sentences were omitted.": "选中文本超过朗读队列的 2,000 句上限，超出部分已略过。",
   "Read-aloud failed: {0}": "朗读失败：{0}",
   "Toggle voice dictation": "开始或停止听写",
