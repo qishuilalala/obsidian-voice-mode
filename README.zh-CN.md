@@ -41,7 +41,7 @@ Voice Mode 可以把口述内容写入当前笔记或侧栏输入框，也能跳
 - **桌面离线听写（M1）**：桌面端通过 Web Worker WASM 运行单模型离线识别（`Silero VAD` + `SenseVoice int8`），支持中英混说、自动标点、连续听写、单句听写与按住说话。可在设置中编辑个人纠错词表，把同音别名写成专有名词或双链笔记。空闲时可自动卸载 Worker，释放内存。
 - **在笔记和第三方侧栏中听写（M1）**：优先写入当前 Markdown 编辑器光标处，也可将光标放在搜索框、Shadow DOM 输入框或 Copilot（Lexical）等富文本侧栏中听写。输入时保留系统剪贴板内容。
 - **跳过 Markdown 标记和表格朗读（M2）**：朗读前剥离 YAML Frontmatter、代码围栏（```` ``` ```` / `~~~`）、数学块（`$$...$$`）、裸 URL、Obsidian Callout 标记与 Markdown 管道表格，并将内联代码与 Wikilink 语法清理为自然口语文本，配合可调字号/宽度与暂停/跳句/停止按钮的悬浮字幕条、可选离线 `vits-wasm` / BYOK TTS 及原生 AEC3 外放语音打断（无原生回声消除或系统语音时自动降级为 `manual` 按键打断）。
-- **可选语音问答、听写润色与云端转写（M3，自备 API 密钥，即 BYOK）**：内置 `< 400` 行纯 TypeScript 双协议路由，支持 OpenAI 兼容接口（DeepSeek、阿里云百炼 Qwen、火山方舟 Doubao、Kimi、硅基流动、OpenRouter、OpenAI、本地 Ollama）、Anthropic Messages 及 `/audio/transcriptions` 语音转写，凭据严格托管于 Obsidian 原生 `SecretStorage`。
+- **可选语音问答、听写润色与云端转写（M3，自备 API 密钥，即 BYOK）**：内置 `< 400` 行纯 TypeScript 双协议路由，支持 OpenAI 兼容接口（DeepSeek `api.deepseek.com`、阿里云百炼 Qwen `dashscope.aliyuncs.com`、火山方舟 Doubao `ark.cn-beijing.volces.com`、Kimi `api.moonshot.cn`、硅基流动 `api.siliconflow.cn`、OpenRouter `openrouter.ai`、OpenAI `api.openai.com`、本地 Ollama `127.0.0.1:11434`）、Anthropic Messages（`api.anthropic.com`）及 `/audio/transcriptions` 语音转写，凭据严格托管于 Obsidian 原生 `SecretStorage`。
 - **可选统一本机 `voice-daemon`（M6，见 [`voice-mode-daemon`](https://github.com/qishuilalala/voice-mode-daemon)）**：面向重度用户的可选本机加速守护进程，绕开 Electron V8 内存笼解锁原生 `Kokoro 103` 音色（含 `<whisper>` / `<break>` 情感合成），并与 [`sillytavern-voice-mode`](https://github.com/qishuilalala/sillytavern-voice-mode)、[`dsh-voice-mode`](https://github.com/qishuilalala/dsh-voice-mode) 共享内核。Obsidian 与 Chrome MV3 扩展联调时共用一个模型实例（`622.7 MB` RSS），守护进程退出时 `< 1s`（实测 `3 ms`）自动无感回退。属进阶可选、面向开发者的后端（需从源码构建，无安装包），**不是插件必需**：不安装它，桌面离线听写与朗读仍可正常使用。
 
 ---
