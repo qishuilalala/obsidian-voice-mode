@@ -21,6 +21,12 @@
 8. WAV 导出前置检查引擎（vits 模型就绪/daemon 可用），系统语音明确提示不可导出；导出需防重。
 9. 命令/通知文案必须进 i18n 表（中文界面）；新增命令同步 README 命令说明。
 
+## 提交前检查（2026-11-26 教训）
+
+- 删除任何 i18n key / 常量前，必须先跑完整 `pnpm run check:all`（含 typecheck）——只跑 `pnpm run test` 会漏掉类型错误（曾导致 CI 三平台失败）。
+- 推送后必须复核 CI 实际结论（`node ../voice-mode-private/scripts/check-ci.mjs` 或 `gh run list`）：push 成功 ≠ CI 绿。
+- 新增测试断言不得依赖本机缓存/状态（CI 是干净环境）；优先轮询条件而非固定短等待。
+
 ## 禁止
 
 - 不 `git add -A`；提交用文件白名单。
