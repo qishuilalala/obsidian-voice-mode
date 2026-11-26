@@ -8,7 +8,7 @@
 - **仓库身份**：`qishuilalala/obsidian-voice-mode`（Obsidian 插件 ID `voice-mode`，`minAppVersion: 1.11.4`，`isDesktopOnly: false`）。
 - **验收环境**：桌面实测使用 Apple M2 Max / 32 GB、macOS `27.2.1`、Obsidian `1.15.1`（Electron `43.8.9` / Chromium `150.0.7871.250`）。Android 15 模拟器安装了 Obsidian `1.15.1` APK；iOS 27 模拟器使用独立的 WKWebView 测试程序。实体手机验证仍待进行。
 - **四仓集成**：母仓提供 `core` 和 `browser` 两个共享包。SillyTavern 和 daemon 各使用两包，DSH 使用 `core`。三个下游检出就位后，`pnpm run verify:matrix --require-all` 重新打包并逐一比较五份归档的 SHA-256。浏览器扩展使用 MIT 许可证。
-- **集成时的测量**：母仓 `main.js` 生产构建在 2026-11-26 快照为 `354,262 B`（约 `346.0 KiB`，预算 ≤1024 KiB）；三包测试数以 `pnpm test` 实测为准（2026-11-26 快照：**113 core + 53 browser + 61 plugin = 227 项**）。SillyTavern 共享代码占比在 2026-11-26 快照为 **73.40%**（gate 阈值 73.3%，历史 76.28% → 74.63% → 73.40%；M5 首次验收保留当时的 `75.05%`）。下文 M5 首次验收保留当时的 `75.05%`。
+- **集成时的测量**：母仓 `main.js` 生产构建在 2026-11-26 快照为 `354,654 B`（约 `346.3 KiB`，预算 ≤1024 KiB）；三包测试数以 `pnpm test` 实测为准（2026-11-26 快照：**113 core + 53 browser + 61 plugin = 227 项**）。SillyTavern 共享代码占比在 2026-11-26 快照为 **73.40%**（gate 阈值 73.3%，历史 76.28% → 74.63% → 73.40%；M5 首次验收保留当时的 `75.05%`）。下文 M5 首次验收保留当时的 `75.05%`。
 
 ## 里程碑验收记录
 
