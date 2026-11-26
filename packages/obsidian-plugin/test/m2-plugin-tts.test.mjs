@@ -950,6 +950,31 @@ describe("SpeechPlayer WAV export (P4 / D-0012 A)", () => {
     await player.dispose();
   });
 
+  it("returns cancelled when the export signal is aborted", async () => {
+    const { encodeMonoPcm16Wav } = await import("@voice-mode/core");
+    const player = new SpeechPlayer(
+      { engine: "kokoro-daemon", voice: "", rate: 1.0, language: "zh-CN" },
+      {},
+      () => globalThis.window ?? {},
+    );
+    player.registerEngine({
+      kind: "kokoro-daemon",
+      async synthesize() {
+        return { audio: encodeMonoPcm16Wav(new Float32Array([0.1]), 16000), mime: "audio/wav" };
+      },
+      async close() {},
+    });
+    assert.equal(player.hasRegisteredEngine("kokoro-daemon"), true);
+    const controller = new AbortController();
+    controller.abort();
+    const result = await player.exportSentences(["hello"], { signal: controller.signal });
+    assert.equal(result.wav, null);
+    assert.equal(result.reason, "cancelled");
+    player.unregisterEngine("kokoro-daemon");
+    assert.equal(player.hasRegisteredEngine("kokoro-daemon"), false);
+    await player.dispose();
+  });
+
   it("reports no-wav-engine when the selected engine produces text (system speech)", async () => {
     const player = new SpeechPlayer(
       { engine: "system", voice: "", rate: 1.0, language: "zh-CN" },
