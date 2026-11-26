@@ -93,6 +93,8 @@ const simplifiedChinese = {
   "Optional local VITS model is not installed yet. Download it in Voice Mode settings or switch speech engine to system.": "尚未安装本地 VITS 模型。请在 Voice Mode 设置中下载，或将朗读引擎切换为系统语音合成。",
   "Read-aloud is not currently active.": "当前没有朗读任务。",
   "Export read-aloud as WAV": "将朗读导出为 WAV",
+  "Resume read-aloud": "从上次位置继续朗读",
+  "Nothing to resume for this note; reading from the beginning.": "这篇笔记没有可续读的位置，从头开始朗读。",
   "Open a note to export read-aloud audio.": "请打开一篇笔记再导出朗读音频。",
   "Export needs a WAV speech engine (local VITS or voice-daemon), not system speech.": "导出需要能输出 WAV 的引擎（本地 VITS 或语音守护进程），系统语音无法导出。",
   "Exporting {0} sentences...": "正在导出 {0} 句…",

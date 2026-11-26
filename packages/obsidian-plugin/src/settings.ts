@@ -106,6 +106,8 @@ export interface VoiceModeSettings {
   subtitleFontSize: SubtitleFontSize;
   subtitleWidth: SubtitleWidth;
   stopReadAloudOnNoteSwitch: boolean;
+  /** Last read-aloud position for the resume command (P4). */
+  readAloudResume: { path: string; sentenceIndex: number } | null;
   bargeInMode: BargeInMode;
   ttsEndpointUrl: string;
   ttsApiKeySecretIds: Partial<Record<TtsSecretMapKey, string>>;
@@ -148,6 +150,7 @@ export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
   subtitleFontSize: "medium",
   subtitleWidth: "medium",
   stopReadAloudOnNoteSwitch: true,
+  readAloudResume: null,
   bargeInMode: "detect",
   ttsEndpointUrl: "",
   ttsApiKeySecretIds: {},
@@ -446,6 +449,24 @@ function sanitizeDaemonUrl(value: unknown): string {
 /**
  * Parse and validate persisted `data.json` contents into a safe `VoiceModeSettings` object.
  */
+function normalizeReadAloudResume(
+  value: unknown,
+): { path: string; sentenceIndex: number } | null {
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return null;
+  }
+  const record = value as { path?: unknown; sentenceIndex?: unknown };
+  const path = typeof record.path === "string" ? record.path.trim() : "";
+  const sentenceIndex = record.sentenceIndex;
+  if (!path || path.length > 1024) {
+    return null;
+  }
+  if (typeof sentenceIndex !== "number" || !Number.isInteger(sentenceIndex) || sentenceIndex < 0) {
+    return null;
+  }
+  return { path, sentenceIndex };
+}
+
 export function normalizeSettings(raw: unknown): VoiceModeSettings {
   const sanitized = stripSecretsFromSettings(raw);
 
@@ -534,6 +555,7 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
       typeof sanitized.stopReadAloudOnNoteSwitch === "boolean"
         ? sanitized.stopReadAloudOnNoteSwitch
         : DEFAULT_SETTINGS.stopReadAloudOnNoteSwitch,
+    readAloudResume: normalizeReadAloudResume(sanitized.readAloudResume),
     bargeInMode,
     ttsEndpointUrl: sanitizeOptionalEndpointUrl(sanitized.ttsEndpointUrl),
     ttsApiKeySecretIds: sanitizeSecretIdMap<TtsSecretMapKey>(

@@ -410,8 +410,9 @@ describe("Obsidian interface language", () => {
     plugin.settings.dictationLanguage = "en-US";
 
     const commands = Object.fromEntries(plugin._commands.map((c) => [c.id, c.name]));
-    assert.equal(Object.keys(commands).length, 9);
+    assert.equal(Object.keys(commands).length, 10);
     assert.equal(commands["export-read-aloud-wav"], "将朗读导出为 WAV");
+    assert.equal(commands["resume-read-aloud"], "从上次位置继续朗读");
     assert.equal(commands["toggle-dictation"], "开始或停止听写");
     assert.equal(commands["ask-ai-about-note"], "就选中文本或当前笔记向 AI 提问");
     assert.ok(Object.values(commands).every((name) => /\p{Script=Han}/u.test(name)));

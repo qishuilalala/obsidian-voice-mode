@@ -219,6 +219,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private readAloudStartEpoch = 0;
   private settingsWriteEpoch = 0;
   private readingNotePath: string | null = null;
+  /** Sentence list and next index of the current run (P4 resume). */
+  private activeReadAloudIndex = 0;
   private pointerHoldActive = false;
   private recognitionErrored = false;
   private overflowNotified = false;
@@ -245,6 +247,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           this.handlePlaybackStateChange(state);
         },
         onSentenceStart: (sentence) => {
+          this.activeReadAloudIndex += 1;
+          if (this.readingNotePath) {
+            this.settings.readAloudResume = {
+              path: this.readingNotePath,
+              sentenceIndex: this.activeReadAloudIndex,
+            };
+            void this.saveSettings();
+          }
           this.showSubtitleOverlay(t("Reading aloud"), sentence, undefined, true);
         },
         onEngineFallback: (requested) => {
@@ -368,6 +378,14 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       name: t("Export read-aloud as WAV"),
       callback: () => {
         void this.exportReadAloudWav();
+      },
+    });
+
+    this.addCommand({
+      id: "resume-read-aloud",
+      name: t("Resume read-aloud"),
+      callback: () => {
+        void this.resumeReadAloud();
       },
     });
 
@@ -2471,7 +2489,22 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
   }
 
-  private async readSelectionOrNoteAloud(): Promise<void> {
+  /** Resume the last read-aloud position for the active note (P4). */
+  private async resumeReadAloud(): Promise<void> {
+    const view = this.app.workspace.getActiveViewOfType(MarkdownView);
+    const resume = this.settings.readAloudResume;
+    const path = view?.file?.path ?? "";
+    if (!view || !resume || resume.path !== path) {
+      if (resume && resume.path !== path) {
+        new Notice(t("Nothing to resume for this note; reading from the beginning."));
+      }
+      await this.readSelectionOrNoteAloud();
+      return;
+    }
+    await this.readSelectionOrNoteAloud({ startIndex: resume.sentenceIndex });
+  }
+
+  private async readSelectionOrNoteAloud(options: { startIndex?: number } = {}): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view?.editor) {
       new Notice(t("Open a Markdown note to read aloud."));
@@ -2533,7 +2566,16 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.overflowNotified = false;
     this.speechPlayer?.cancel();
     this.readingNotePath = view.file?.path ?? null;
-    const queued = this.speechPlayer?.speakSentences(sentences) ?? 0;
+    const startIndex = Math.min(
+      Math.max(0, options.startIndex ?? 0),
+      Math.max(0, sentences.length - 1),
+    );
+    this.activeReadAloudIndex = startIndex;
+    if (this.readingNotePath) {
+      this.settings.readAloudResume = { path: this.readingNotePath, sentenceIndex: startIndex };
+      void this.saveSettings();
+    }
+    const queued = this.speechPlayer?.speakSentences(sentences.slice(startIndex)) ?? 0;
     if (queued > 0) {
       new Notice(queued === 1 ? t("Reading 1 sentence aloud.") : t("Reading {0} sentences aloud.", queued));
     }

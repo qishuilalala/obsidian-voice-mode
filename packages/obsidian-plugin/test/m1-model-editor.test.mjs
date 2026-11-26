@@ -1103,3 +1103,24 @@ describe("settings normalization & sequential replacement persistence without de
     }
   });
 });
+
+it("settings: readAloudResume normalizes safely (P4 resume)", async () => {
+  const { normalizeSettings } = await import("../src/settings.ts");
+  assert.deepEqual(
+    normalizeSettings({ readAloudResume: { path: "notes/a.md", sentenceIndex: 3 } }).readAloudResume,
+    { path: "notes/a.md", sentenceIndex: 3 },
+  );
+  assert.equal(
+    normalizeSettings({ readAloudResume: { path: "", sentenceIndex: 3 } }).readAloudResume,
+    null,
+  );
+  assert.equal(
+    normalizeSettings({ readAloudResume: { path: "a.md", sentenceIndex: -1 } }).readAloudResume,
+    null,
+  );
+  assert.equal(
+    normalizeSettings({ readAloudResume: { path: "a.md", sentenceIndex: 1.5 } }).readAloudResume,
+    null,
+  );
+  assert.equal(normalizeSettings({ readAloudResume: "bad" }).readAloudResume, null);
+});
