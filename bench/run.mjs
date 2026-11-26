@@ -12,11 +12,22 @@ const { values } = parseArgs({
     product: { type: 'string', default: 'obsidian' },
     corpus: { type: 'string', default: 'c1' },
     out: { type: 'string', default: '.scratch/bench-report.json' },
+    version: { type: 'string' },
     expression: { type: 'boolean', default: false },
   },
 })
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
+
+/** Product version: explicit `--version` wins, otherwise the hosting repo's package.json. */
+function readProductVersion() {
+  if (values.version) return values.version
+  try {
+    return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version ?? 'unknown'
+  } catch {
+    return 'unknown'
+  }
+}
 const manifest = JSON.parse(fs.readFileSync(path.join(root, 'bench/corpus.manifest.json'), 'utf8'))
 const corpus = manifest.corpora[values.corpus]
 if (!corpus) {
@@ -125,7 +136,7 @@ if (values.expression) {
 const report = {
   schema: 'voice-mode/bench@1',
   product: values.product,
-  version: '0.1.0',
+  version: readProductVersion(),
   corpus: corpus.id,
   env: collectEnv({ corpusId: corpus.id, host: values.product, modelId: envModel }),
   metrics,

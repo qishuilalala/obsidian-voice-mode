@@ -16,7 +16,8 @@
 pnpm run bench:smoke                          # C1 链路自检（CI/manual）
 node bench/run.mjs --corpus c1 --out .scratch/bench.json
 node bench/run.mjs --product obsidian --corpus c2 --out .scratch/bench-c2.json
-node bench/run.mjs --corpus c1 --expression --out .scratch/bench-expression.json  # E5 人工评分模板
+node bench/run.mjs --corpus c1 --expression
+node bench/run.mjs --corpus c1 --product dsh --version 0.7.46 --out .scratch/bench-dsh.json  # 跨产品报告传 --version --out .scratch/bench-expression.json  # E5 人工评分模板
 node bench/prepare-c2.mjs   # C2 语料准备（扫描 bench/.cache/c2-aishell1-30/ 并登记 SHA256；不下载）
 ```
 
