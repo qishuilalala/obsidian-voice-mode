@@ -312,7 +312,9 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         items: [
           {
             name: t("1 · Try read-aloud"),
-            desc: t("Run \"Read selection or note aloud\" from the command palette. System speech needs no model download."),
+            desc: capabilities.allowLocalWasmModels
+              ? t("Run \"Read selection or note aloud\" from the command palette. System speech needs no model download.")
+              : t("Run \"Read selection or note aloud\" from the command palette. iOS system voices work without setup; some Android WebViews lack speechSynthesis, so configure a BYOK TTS provider there."),
           },
           ...(capabilities.allowLocalWasmModels
             ? [
