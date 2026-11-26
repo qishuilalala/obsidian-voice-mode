@@ -68,6 +68,18 @@ Measured inside real **Obsidian `1.15.1` (`Electron 43.8.9` / `Chromium 150.0.78
 
 > **Mobile dictation is conditional**: it works only when the mobile WebView exposes `SpeechRecognition` and the system speech provider is available; local WASM dictation models and the local `voice-daemon` are disabled on mobile by design. Physical-device verification is pending, so mobile dictation is not advertised as verified — use the desktop path for offline dictation.
 
+### Expression capability disclosure
+
+Capabilities come from `@voice-mode/core`'s expression contract; unsupported facets degrade visibly instead of being silently dropped.
+
+| Engine | Voices | Rate | Pause | Whisper | Emotion |
+| --- | --- | --- | --- | --- | --- |
+| `system` | host-provided | Yes | Simulated by segment splitting | Stripped | Stripped |
+| `vits-wasm` | 5 | Yes | Simulated by segment splitting | — | — |
+| `kokoro-daemon` | 103 | Yes | Native `<break Nms>` (≤5000 ms) | Native (×0.5 gain) | — |
+| `openai-compat` | provider-dependent | Yes | provider-dependent | provider-dependent | Instructions (provider-dependent) |
+| `mimo` | 9 | Yes | provider-dependent | provider-dependent | Instructions |
+
 ---
 
 ## Privacy, Network Access & External Model Disclosure
