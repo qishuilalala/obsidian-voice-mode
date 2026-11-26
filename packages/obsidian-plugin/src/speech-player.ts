@@ -1,5 +1,7 @@
 import {
+  defaultKokoroVoiceForLanguage,
   detectTextLanguage,
+  kokoroVoiceLanguage,
   mergeMonoPcm16WavChunks,
   type DetectedLanguage,
   type TtsEngine,
@@ -26,6 +28,8 @@ export interface SpeechPlayerConfig {
   voice: string;
   rate: number;
   language: string;
+  /** P2-1: switch Kokoro voice language per sentence when mismatched. */
+  autoLanguageVoice?: boolean;
 }
 
 export interface SpeechPlayerHooks {
@@ -732,6 +736,32 @@ export class SpeechPlayer {
     await Promise.all(closing);
   }
 
+  /**
+   * P2-1: keep the user's pinned voice unless its Kokoro language family mismatches the
+   * sentence language (zh vs en); then fall back to a default voice of that family.
+   */
+  private resolveSentenceVoice(
+    engine: TtsEngineKind,
+    sentence: string,
+  ): string | undefined {
+    const pinned = this.config.voice?.trim();
+    if (!pinned || this.config.autoLanguageVoice === false || engine !== "kokoro-daemon") {
+      return pinned || undefined;
+    }
+    const sentenceLanguage = detectTextLanguage(sentence);
+    const voiceLanguage = kokoroVoiceLanguage(pinned);
+    if (!voiceLanguage) {
+      return pinned;
+    }
+    if (sentenceLanguage === "en" && voiceLanguage === "zh") {
+      return defaultKokoroVoiceForLanguage("en");
+    }
+    if (sentenceLanguage === "zh" && voiceLanguage === "en") {
+      return defaultKokoroVoiceForLanguage("zh");
+    }
+    return pinned;
+  }
+
   private async synthesizeSentence(
     sentence: string,
     signal: AbortSignal,
@@ -744,8 +774,9 @@ export class SpeechPlayer {
     const requestedEngine = this.config.engine;
     const mounted = this.engines.get(requestedEngine);
     if (requestedEngine !== "system" && mounted) {
+      const effectiveVoice = this.resolveSentenceVoice(requestedEngine, sentence);
       const cacheKey = useCache
-        ? `${requestedEngine}|${this.config.voice ?? ""}|${this.config.rate ?? ""}|${sentence}`
+        ? `${requestedEngine}|${effectiveVoice ?? ""}|${this.config.rate ?? ""}|${sentence}`
         : null;
       if (cacheKey) {
         const cached = this.synthesisCache.get(cacheKey);
@@ -754,7 +785,7 @@ export class SpeechPlayer {
         }
       }
       const synthOptions: TtsSynthOptions = {
-        voice: this.config.voice || undefined,
+        voice: effectiveVoice,
         rate: this.config.rate,
         signal,
       };

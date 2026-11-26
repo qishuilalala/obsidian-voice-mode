@@ -1196,6 +1196,20 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         });
       });
 
+    new Setting(containerEl)
+      .setName(t("Match voice language per sentence"))
+      .setDesc(
+        t(
+          "For Kokoro voices, switch to a matching-language voice when the note mixes Chinese and English.",
+        ),
+      )
+      .addToggle((toggle) => {
+        toggle.setValue(this.host.settings.autoLanguageVoice).onChange(async (value) => {
+          this.host.settings.autoLanguageVoice = value;
+          await this.host.saveSettings();
+        });
+      });
+
     this.renderReplacementsEditor(containerEl);
     this.renderPronunciationEditor(containerEl);
 

@@ -99,6 +99,21 @@ export const KOKORO_VOICES: ReadonlyArray<{ name: string; sid: number }> = [
   ),
 ]
 
+/** Kokoro voice language family inferred from the speaker id prefix (a/b = English, z = Chinese). */
+export type KokoroVoiceLanguage = 'zh' | 'en'
+
+export function kokoroVoiceLanguage(voice: string): KokoroVoiceLanguage | undefined {
+  const key = voice.trim().toLowerCase()
+  if (/^[ab][fm]_/.test(key)) return 'en'
+  if (/^z[fm]_/.test(key)) return 'zh'
+  return undefined
+}
+
+/** Preferred Kokoro voice id for a detected language (P2-1 language switching). */
+export function defaultKokoroVoiceForLanguage(language: KokoroVoiceLanguage): string {
+  return language === 'en' ? 'af_maple' : 'zf_xiaobei'
+}
+
 export function findKokoroVoice(voice: string): { name: string; sid: number } | undefined {
   const key = voice.trim().toLowerCase()
   const hit = KOKORO_VOICES.find((v) => v.name.toLowerCase() === key || String(v.sid) === key)

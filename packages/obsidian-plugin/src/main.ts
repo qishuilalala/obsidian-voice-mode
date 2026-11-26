@@ -243,6 +243,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         voice: this.settings.ttsVoice,
         rate: this.settings.speechRate,
         language: this.settings.dictationLanguage,
+        autoLanguageVoice: this.settings.autoLanguageVoice,
       },
       {
         onStateChange: (state) => {

@@ -249,6 +249,9 @@ const simplifiedChinese = {
   "Map spoken aliases or homophones to domain terms, proper nouns, or [[wikilinks]] in a single pass.": "听写时可一次将别名或同音词替换为术语、专名或 [[笔记双链]]。",
   "Invalid replacement dictionary: {0}.": "词汇替换规则无效：{0}。",
   "No custom vocabulary rules configured yet.": "尚未添加自定义词汇规则。",
+  "Match voice language per sentence": "按句自动匹配音色语言",
+  "For Kokoro voices, switch to a matching-language voice when the note mixes Chinese and English.":
+    "对 Kokoro 音色：当笔记中英混排时，按句子语言自动切换音色。",
   "Pronunciation dictionary (read-aloud)": "发音词典（朗读）",
   "Rewrite text before speech synthesis, e.g. \"API\" -> \"A P I\". Applied to read-aloud only.": "在语音合成前改写文本，例如把「API」念作「A P I」；仅作用于朗读。",
   "No pronunciation rules configured yet.": "尚未配置发音规则。",

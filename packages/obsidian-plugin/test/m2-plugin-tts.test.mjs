@@ -1129,4 +1129,41 @@ describe("SpeechPlayer read-aloud progress (P4)", () => {
     await pinned.waitUntilDrained();
     assert.equal(utterances[2].lang, "zh-CN", "explicit voice keeps configured language");
   });
+
+
+  it("switches Kokoro voice per sentence language when autoLanguageVoice is enabled", async () => {
+    const { encodeMonoPcm16Wav } = await import("@voice-mode/core");
+    const wav = encodeMonoPcm16Wav(new Float32Array(320), 24000);
+    const seen = [];
+    const makePlayer = (autoLanguageVoice) =>
+      new SpeechPlayer(
+        { engine: "kokoro-daemon", voice: "zf_xiaobei", rate: 1, language: "zh-CN", autoLanguageVoice },
+        { onError: () => {} },
+        () => ({}),
+        {},
+      );
+    const on = makePlayer(true);
+    on.registerEngine({
+      kind: "kokoro-daemon",
+      synthesize: async (text, options) => {
+        seen.push({ text, voice: options?.voice });
+        return { audio: wav, mime: "audio/wav" };
+      },
+    });
+    await on.exportSentences(["这是中文句子。", "This is an English sentence."]);
+    assert.equal(seen[0].voice, "zf_xiaobei", "Chinese sentence keeps the pinned Chinese voice");
+    assert.equal(seen[1].voice, "af_maple", "English sentence switches to an English Kokoro voice");
+
+    const seenOff = [];
+    const off = makePlayer(false);
+    off.registerEngine({
+      kind: "kokoro-daemon",
+      synthesize: async (text, options) => {
+        seenOff.push({ text, voice: options?.voice });
+        return { audio: wav, mime: "audio/wav" };
+      },
+    });
+    await off.exportSentences(["This is an English sentence."]);
+    assert.equal(seenOff[0].voice, "zf_xiaobei", "disabled switch keeps the pinned voice");
+  });
 });

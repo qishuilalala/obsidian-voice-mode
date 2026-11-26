@@ -102,6 +102,8 @@ export interface VoiceModeSettings {
   ttsPresetId: string;
   ttsModel: string;
   ttsVoice: string;
+  /** P2-1: switch Kokoro voice language per sentence (zh/en) when the pinned voice mismatches. */
+  autoLanguageVoice: boolean;
   speechRate: number;
   markdownTablePolicy: MarkdownTablePolicy;
   maxSentenceChars: number;
@@ -147,6 +149,7 @@ export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
   ttsPresetId: "siliconflow-cosyvoice2",
   ttsModel: "",
   ttsVoice: "",
+  autoLanguageVoice: true,
   speechRate: 1.0,
   markdownTablePolicy: "skip",
   maxSentenceChars: 200,
@@ -551,6 +554,7 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
     ttsPresetId,
     ttsModel: typeof sanitized.ttsModel === "string" ? sanitized.ttsModel.trim() : "",
     ttsVoice: typeof sanitized.ttsVoice === "string" ? sanitized.ttsVoice.trim() : "",
+    autoLanguageVoice: sanitized.autoLanguageVoice !== false,
     speechRate: clampNumber(sanitized.speechRate, 0.5, 2.0, DEFAULT_SETTINGS.speechRate),
     markdownTablePolicy,
     maxSentenceChars: Math.round(
