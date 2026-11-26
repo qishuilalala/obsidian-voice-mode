@@ -21,10 +21,12 @@ export {
 } from './asr-replacements.ts'
 
 export {
+  EMOTION_NAMES,
   parseEmotionTags,
   stripEmotionTags,
   buildEmotionPromptInstruction,
   compileEmotionPlan,
+  type EmotionName,
   type EmotionTag,
   type EmotionSegment,
   type EmotionPromptOptions,

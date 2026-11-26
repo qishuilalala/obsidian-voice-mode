@@ -9,6 +9,22 @@
 
 export type EmotionTag = 'laugh' | 'sigh' | 'emphasis'
 
+/** Scoped prosody/emotion names accepted by `<emotion:NAME>...</emotion>`. */
+export const EMOTION_NAMES = [
+  'neutral',
+  'gentle',
+  'happy',
+  'sad',
+  'angry',
+  'excited',
+  'tender',
+  'serious',
+  'playful',
+  'nervous',
+] as const
+
+export type EmotionName = (typeof EMOTION_NAMES)[number]
+
 export interface EmotionSegment {
   /** Spoken plain text with emotion tags consumed. */
   text: string
@@ -16,6 +32,18 @@ export interface EmotionSegment {
   whisper: boolean
   /** Optional silence break in milliseconds associated with this segment. */
   preBreakMs?: number
+  /** `<slow>...</slow>` scope. */
+  slow?: boolean
+  /** `<fast>...</fast>` scope. */
+  fast?: boolean
+  /** `<spell>...</spell>` scope (letter-by-letter reading). */
+  spell?: boolean
+  /** `<volume N>...</volume>` scope, clamped to [0, 2]. */
+  volume?: number
+  /** `<pitch N>...</pitch>` scope in semitones, clamped to [-12, 12]. */
+  pitch?: number
+  /** `<emotion:NAME>...</emotion>` scope. */
+  emotion?: EmotionName
 }
 
 export interface EmotionPromptOptions {
@@ -40,7 +68,7 @@ export interface CompiledEmotionPlan {
 }
 
 const EMOTION_TAG_PATTERN =
-  '<\\s*(break\\s+(?<ms>\\d+)\\s*ms|whisper|\\/whisper|laugh|sigh|emphasis)\\s*>'
+  '<\\s*(break\\s+(?<ms>\\d+)\\s*ms|whisper|\\/whisper|slow|\\/slow|fast|\\/fast|spell|\\/spell|volume\\s+(?<volume>\\d+(?:\\.\\d+)?)|\\/volume|pitch\\s+(?<pitch>-?\\d+)|\\/pitch|emotion\\s*:\\s*(?<emotion>[a-z][a-z_-]*)|\\/emotion|laugh|sigh|emphasis)\\s*>'
 
 const TAG_RE = new RegExp(EMOTION_TAG_PATTERN, 'gi')
 const STRIP_RE = new RegExp(EMOTION_TAG_PATTERN, 'gi')
@@ -59,13 +87,19 @@ export function stripEmotionTags(raw: string): string {
 
 /**
  * Parse emotion tags into an ordered list of speech segments.
- * Unbalanced `<whisper>` downgrades all segments to `whisper: false` conservatively.
+ * Unbalanced scopes downgrade conservatively (their flags are dropped) instead of throwing.
  */
 export function parseEmotionTags(raw: string): EmotionSegment[] {
   const input = String(raw)
   const out: EmotionSegment[] = []
   let buf = ''
   let whisper = false
+  let slow = false
+  let fast = false
+  let spell = false
+  let volume: number | undefined
+  let pitch: number | undefined
+  let emotion: EmotionName | undefined
   let pendingBreakMs = 0
   let totalBreakMs = 0
   let sawInlineTag = false
@@ -84,8 +118,18 @@ export function parseEmotionTags(raw: string): EmotionSegment[] {
     buf = ''
     sawInlineTag = false
     if (text.length === 0) return
-    out.push({ text, whisper })
+    const seg: EmotionSegment = { text, whisper }
+    if (slow) seg.slow = true
+    if (fast) seg.fast = true
+    if (spell) seg.spell = true
+    if (volume !== undefined) seg.volume = volume
+    if (pitch !== undefined) seg.pitch = pitch
+    if (emotion) seg.emotion = emotion
+    out.push(seg)
   }
+
+  const clampVolume = (value: number): number => Math.min(2, Math.max(0, value))
+  const clampPitch = (value: number): number => Math.min(12, Math.max(-12, value))
 
   let lastEnd = 0
   for (const m of input.matchAll(TAG_RE)) {
@@ -107,9 +151,7 @@ export function parseEmotionTags(raw: string): EmotionSegment[] {
         continue
       }
       totalBreakMs += ms
-      if (buf.trim().length > 0) {
-        flush()
-      }
+      if (buf.trim().length > 0) flush()
       const last = out[out.length - 1]
       if (last) {
         last.preBreakMs = (last.preBreakMs ?? 0) + ms
@@ -122,6 +164,57 @@ export function parseEmotionTags(raw: string): EmotionSegment[] {
     } else if (tag === '/whisper') {
       flush()
       whisper = false
+    } else if (tag === 'slow') {
+      flush()
+      slow = true
+      fast = false
+    } else if (tag === '/slow') {
+      flush()
+      slow = false
+    } else if (tag === 'fast') {
+      flush()
+      fast = true
+      slow = false
+    } else if (tag === '/fast') {
+      flush()
+      fast = false
+    } else if (tag === 'spell') {
+      flush()
+      spell = true
+    } else if (tag === '/spell') {
+      flush()
+      spell = false
+    } else if (tag.startsWith('volume')) {
+      const raw = Number(m.groups?.volume ?? NaN)
+      if (!Number.isFinite(raw)) {
+        sawInlineTag = true
+        continue
+      }
+      flush()
+      volume = clampVolume(raw)
+    } else if (tag === '/volume') {
+      flush()
+      volume = undefined
+    } else if (tag.startsWith('pitch')) {
+      const raw = Number(m.groups?.pitch ?? NaN)
+      if (!Number.isFinite(raw)) {
+        sawInlineTag = true
+        continue
+      }
+      flush()
+      pitch = clampPitch(raw)
+    } else if (tag === '/pitch') {
+      flush()
+      pitch = undefined
+    } else if (tag.startsWith('emotion')) {
+      const name = (m.groups?.emotion ?? '').toLowerCase()
+      flush()
+      emotion = (EMOTION_NAMES as readonly string[]).includes(name)
+        ? (name as EmotionName)
+        : undefined
+    } else if (tag === '/emotion') {
+      flush()
+      emotion = undefined
     } else {
       sawInlineTag = true
     }
@@ -138,9 +231,14 @@ export function parseEmotionTags(raw: string): EmotionSegment[] {
     pendingBreakMs = 0
   }
 
-  if (whisper) {
-    for (const seg of out) seg.whisper = false
-  }
+  // Unbalanced scopes downgrade conservatively: drop their flags entirely.
+  if (whisper) for (const seg of out) seg.whisper = false
+  if (slow) for (const seg of out) delete seg.slow
+  if (fast) for (const seg of out) delete seg.fast
+  if (spell) for (const seg of out) delete seg.spell
+  if (volume !== undefined) for (const seg of out) delete seg.volume
+  if (pitch !== undefined) for (const seg of out) delete seg.pitch
+  if (emotion) for (const seg of out) delete seg.emotion
 
   return out
 }
@@ -180,6 +278,7 @@ export function buildEmotionPromptInstruction(options: EmotionPromptOptions = {}
   }
   if (allowWhisper || allowBreaks) {
     parts.push('Use inline cues (<laugh>, <sigh>, <emphasis>) sparingly; never invent unsupported tags.')
+    parts.push('Optional scoped cues: <slow>...</slow>, <fast>...</fast>, <spell>...</spell>, <volume 0.5>...</volume>, <pitch -2>...</pitch>, <emotion:gentle>...</emotion>; always close them.')
   }
   return parts.join(' ')
 }
@@ -222,6 +321,27 @@ export function compileEmotionPlan(raw: string, mode: EmotionPlanMode): Compiled
   }
   if (segments.some((seg) => (seg.preBreakMs ?? 0) > 0)) {
     hints.push('leave natural measured pauses between thoughts')
+  }
+  if (segments.some((seg) => seg.slow)) {
+    hints.push('slow the delivery for marked phrases')
+  }
+  if (segments.some((seg) => seg.fast)) {
+    hints.push('quicken the pace for marked phrases')
+  }
+  if (segments.some((seg) => seg.spell)) {
+    hints.push('spell out marked words letter by letter')
+  }
+  if (segments.some((seg) => seg.volume !== undefined)) {
+    hints.push('adjust vocal loudness where marked')
+  }
+  if (segments.some((seg) => seg.pitch !== undefined)) {
+    hints.push('shift pitch where marked')
+  }
+  const emotionNames = [
+    ...new Set(segments.map((seg) => seg.emotion).filter((name): name is EmotionName => !!name)),
+  ]
+  if (emotionNames.length > 0) {
+    hints.push(`convey the marked emotion (${emotionNames.join(', ')})`)
   }
 
   const inlineSet = new Set<string>()
