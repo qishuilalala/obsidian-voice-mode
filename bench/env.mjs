@@ -13,7 +13,7 @@ function gitSha() {
 }
 
 /** 12 字段环境标注（docs/08 §3 口径）。 */
-export function collectEnv({ corpusId, warm = 'cold', host = 'unknown', modelId = 'n/a' }) {
+export function collectEnv({ corpusId, warm = 'cold', host = 'unknown', modelId = 'n/a', gitSha: gitShaOverride } = {}) {
   return {
     os: `${process.platform}-${os.release()}`,
     arch: process.arch,
@@ -25,7 +25,7 @@ export function collectEnv({ corpusId, warm = 'cold', host = 'unknown', modelId 
     warm,
     corpusId,
     segmentation: 'silenceMs=1500',
-    gitSha: gitSha(),
+    gitSha: gitShaOverride ?? gitSha(),
     timestamp: new Date().toISOString(),
   }
 }

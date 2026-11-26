@@ -5,6 +5,7 @@ import os from 'node:os'
 import path from 'node:path'
 import { createHash } from 'node:crypto'
 import { parseArgs } from 'node:util'
+import { execSync } from 'node:child_process'
 import { collectEnv } from './env.mjs'
 
 const { values } = parseArgs({
@@ -13,17 +14,43 @@ const { values } = parseArgs({
     corpus: { type: 'string', default: 'c1' },
     out: { type: 'string', default: '.scratch/bench-report.json' },
     version: { type: 'string' },
+    'repo-root': { type: 'string' },
     expression: { type: 'boolean', default: false },
   },
 })
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
 
-/** Product version: explicit `--version` wins, otherwise the hosting repo's package.json. */
+/** Resolve the inspected product's checkout: `--repo-root` wins, otherwise the hosting repo. */
+function productRoot() {
+  return values['repo-root'] ? path.resolve(values['repo-root']) : root
+}
+
+/** Product version: explicit `--version` wins, then the product checkout (dsh keeps plugin pkg nested). */
 function readProductVersion() {
   if (values.version) return values.version
+  const candidates =
+    values.product === 'dsh'
+      ? [path.join(productRoot(), 'plugin/dsh-voice-mode/package.json'), path.join(productRoot(), 'package.json')]
+      : [path.join(productRoot(), 'package.json')]
+  for (const candidate of candidates) {
+    try {
+      const version = JSON.parse(fs.readFileSync(candidate, 'utf8')).version
+      if (version) return version
+    } catch {
+      // try the next candidate
+    }
+  }
+  return 'unknown'
+}
+
+/** Git HEAD of the inspected checkout (cross-product reports must not record the hosting repo). */
+function readGitSha() {
   try {
-    return JSON.parse(fs.readFileSync(path.join(root, 'package.json'), 'utf8')).version ?? 'unknown'
+    return execSync(`git -C "${productRoot()}" rev-parse --short HEAD`, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'ignore'],
+    }).trim()
   } catch {
     return 'unknown'
   }
@@ -138,7 +165,7 @@ const report = {
   product: values.product,
   version: readProductVersion(),
   corpus: corpus.id,
-  env: collectEnv({ corpusId: corpus.id, host: values.product, modelId: envModel }),
+  env: collectEnv({ corpusId: corpus.id, host: values.product, modelId: envModel, gitSha: readGitSha() }),
   metrics,
   gate: { mode: 'report-only', result: 'pass' },
   notes,
