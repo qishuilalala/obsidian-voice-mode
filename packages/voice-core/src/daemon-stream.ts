@@ -27,7 +27,10 @@ export interface DaemonStreamTranscriberOptions {
   onError?: (error: Error) => void
   /** Injectable WebSocket constructor (tests / non-browser hosts). */
   webSocketImpl?: DaemonStreamSocketConstructor
-  /** Ready-handshake timeout in ms (default 5000). */
+  /**
+   * Ready-handshake timeout in ms (default 30000). The daemon loads the streaming
+   * recognizer on first use, which can take 20-30 s on a cold start.
+   */
   connectTimeoutMs?: number
   /** Final-frame timeout in ms (default 10000). */
   stopTimeoutMs?: number
@@ -91,7 +94,7 @@ export class DaemonStreamTranscriber {
     this.socket = socket
 
     this.ready = new Promise<void>((resolve, reject) => {
-      const timeoutMs = this.options.connectTimeoutMs ?? 5_000
+      const timeoutMs = this.options.connectTimeoutMs ?? 30_000
       const timer = setTimeout(() => {
         cleanup()
         reject(new Error('daemon streaming connect timed out'))
