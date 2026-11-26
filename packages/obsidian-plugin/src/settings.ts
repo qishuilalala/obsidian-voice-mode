@@ -93,6 +93,8 @@ export interface VoiceModeSettings {
   asrModel: string;
   asrApiKeySecretId: string;
   asrReplacements: AsrReplacement[];
+  /** Pronunciation dictionary applied before TTS (read-aloud); same rule shape as asrReplacements. */
+  pronunciationDict: AsrReplacement[];
   enableSubtitleOverlay: boolean;
 
   // Read aloud
@@ -138,6 +140,7 @@ export const DEFAULT_SETTINGS: Readonly<VoiceModeSettings> = {
   asrModel: "",
   asrApiKeySecretId: "",
   asrReplacements: [],
+  pronunciationDict: [],
   enableSubtitleOverlay: true,
 
   ttsEngine: "system",
@@ -177,6 +180,7 @@ export function createDefaultSettings(): VoiceModeSettings {
     enableLlmPolish: DEFAULT_SETTINGS.enableLlmPolish,
     daemonTokenSecretId: DEFAULT_SETTINGS.daemonTokenSecretId,
     asrReplacements: [],
+  pronunciationDict: [],
     ttsApiKeySecretIds: {},
     llmApiKeySecretIds: {},
   };
@@ -515,6 +519,8 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
 
   const validatedReplacements = validateReplacements(sanitized.asrReplacements);
   const asrReplacements = validatedReplacements.ok ? validatedReplacements.rules : [];
+  const validatedPronunciation = validateReplacements(sanitized.pronunciationDict);
+  const pronunciationDict = validatedPronunciation.ok ? validatedPronunciation.rules : [];
 
   const validatedMirror =
     typeof sanitized.modelMirrorHost === "string"
@@ -535,6 +541,7 @@ export function normalizeSettings(raw: unknown): VoiceModeSettings {
     asrModel: typeof sanitized.asrModel === "string" ? sanitized.asrModel.trim() : "",
     asrApiKeySecretId: cleanSecretId(sanitized.asrApiKeySecretId),
     asrReplacements,
+    pronunciationDict,
     enableSubtitleOverlay:
       typeof sanitized.enableSubtitleOverlay === "boolean"
         ? sanitized.enableSubtitleOverlay

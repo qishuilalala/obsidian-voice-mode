@@ -351,6 +351,14 @@ function findChildByClass(root, cls) {
   return null;
 }
 
+function hasText(root, text) {
+  if (root?.textContent === text) return true;
+  for (const child of root?.children ?? []) {
+    if (hasText(child, text)) return true;
+  }
+  return false;
+}
+
 function findButtonByText(root, text) {
   if (!root || !Array.isArray(root.children)) return null;
   for (const child of root.children) {
@@ -439,6 +447,7 @@ describe("Obsidian interface language", () => {
     tab.display();
     assert.ok(findButtonByText(tab.containerEl, "下载或校验模型"));
     assert.ok(findButtonByText(tab.containerEl, "添加规则"));
+    assert.ok(hasText(tab.containerEl, "发音词典（朗读）"));
 
     const modal = new VoiceQaModal(app, { scope: "selection", text: "abc", truncated: true }, {});
     modal.open();
@@ -467,12 +476,20 @@ describe("Obsidian interface language", () => {
 
 describe("settings.ts M3 fields (asrModel, enableLlmPolish, zero-secret guarantee)", () => {
   it("defaults asrModel to '' and enableLlmPolish to false, normalizes safely, and strips accidental secrets", () => {
+    assert.deepEqual(DEFAULT_SETTINGS.pronunciationDict, []);
     assert.equal(DEFAULT_SETTINGS.asrModel, "");
     assert.equal(DEFAULT_SETTINGS.enableLlmPolish, false);
 
     const fresh = createDefaultSettings();
     assert.equal(fresh.asrModel, "");
     assert.equal(fresh.enableLlmPolish, false);
+
+    const withPronunciation = normalizeSettings({
+      pronunciationDict: [{ from: ["API"], to: "A P I" }],
+    });
+    assert.deepEqual(withPronunciation.pronunciationDict, [{ from: ["API"], to: "A P I" }]);
+    const invalidPronunciation = normalizeSettings({ pronunciationDict: "not-an-array" });
+    assert.deepEqual(invalidPronunciation.pronunciationDict, []);
 
     const normalized = normalizeSettings({
       asrEngine: "openai-compat",

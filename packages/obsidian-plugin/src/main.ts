@@ -2470,10 +2470,18 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       new Notice(t("Open a note to export read-aloud audio."));
       return;
     }
-    const sentences = extractReadableText(view.editor, {
+    const rawSentences = extractReadableText(view.editor, {
       maxSentenceChars: this.settings.maxSentenceChars,
       tablePolicy: this.settings.markdownTablePolicy,
     });
+    // P1-2 pronunciation dictionary: rewrite text before TTS (e.g. "API" -> "A P I").
+    const pronunciationReplacer =
+      this.settings.pronunciationDict.length > 0
+        ? createAsrReplacer(this.settings.pronunciationDict)
+        : null;
+    const sentences = pronunciationReplacer
+      ? rawSentences.map((sentence) => pronunciationReplacer(sentence))
+      : rawSentences;
     if (sentences.length === 0) {
       new Notice(t("No readable text found in the selection or note."));
       return;
@@ -2558,10 +2566,18 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
-    const sentences = extractReadableText(view.editor, {
+    const rawSentences = extractReadableText(view.editor, {
       maxSentenceChars: this.settings.maxSentenceChars,
       tablePolicy: this.settings.markdownTablePolicy,
     });
+    // P1-2 pronunciation dictionary: rewrite text before TTS (e.g. "API" -> "A P I").
+    const pronunciationReplacer =
+      this.settings.pronunciationDict.length > 0
+        ? createAsrReplacer(this.settings.pronunciationDict)
+        : null;
+    const sentences = pronunciationReplacer
+      ? rawSentences.map((sentence) => pronunciationReplacer(sentence))
+      : rawSentences;
 
     if (sentences.length === 0) {
       new Notice(t("No readable text found in the selection or note."));

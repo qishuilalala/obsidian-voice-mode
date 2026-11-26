@@ -1197,6 +1197,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       });
 
     this.renderReplacementsEditor(containerEl);
+    this.renderPronunciationEditor(containerEl);
 
     const asrSecretSetting = new Setting(containerEl)
       .setName(t("Transcription API key"))
@@ -1246,16 +1247,53 @@ export class VoiceModeSettingTab extends PluginSettingTab {
   }
 
   private renderReplacementsEditor(parentEl: HTMLElement): void {
+    this.renderReplacementPanel(parentEl, {
+      title: t("Personal vocabulary replacements"),
+      desc: t(
+        "Map spoken aliases or homophones to domain terms, proper nouns, or [[wikilinks]] in a single pass.",
+      ),
+      emptyText: t("No custom vocabulary rules configured yet."),
+      getRules: () => this.host.settings.asrReplacements,
+      setRules: (rules) => {
+        this.host.settings.asrReplacements = rules;
+      },
+    });
+  }
+
+  private renderPronunciationEditor(parentEl: HTMLElement): void {
+    this.renderReplacementPanel(parentEl, {
+      title: t("Pronunciation dictionary (read-aloud)"),
+      desc: t(
+        "Rewrite text before speech synthesis, e.g. \"API\" -> \"A P I\". Applied to read-aloud only.",
+      ),
+      emptyText: t("No pronunciation rules configured yet."),
+      getRules: () => this.host.settings.pronunciationDict,
+      setRules: (rules) => {
+        this.host.settings.pronunciationDict = rules;
+      },
+    });
+  }
+
+  private renderReplacementPanel(
+    parentEl: HTMLElement,
+    opts: {
+      title: string;
+      desc: string;
+      emptyText: string;
+      getRules: () => AsrReplacement[];
+      setRules: (rules: AsrReplacement[]) => void;
+    },
+  ): void {
     const panel = parentEl.createDiv({ cls: "vm-replacements-panel" });
 
     const header = panel.createDiv({ cls: "vm-replacements-header" });
     header.createSpan({
       cls: "vm-replacements-title",
-      text: t("Personal vocabulary replacements"),
+      text: opts.title,
     });
     const budgetSpan = header.createSpan({ cls: "vm-replacements-budget" });
 
-    const currentRules = (): AsrReplacement[] => this.host.settings.asrReplacements;
+    const currentRules = (): AsrReplacement[] => opts.getRules();
 
     const updateBudgetLabel = (): void => {
       const rules = currentRules();
@@ -1268,7 +1306,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
 
     panel.createDiv({
       cls: "vm-model-meta",
-      text: t("Map spoken aliases or homophones to domain terms, proper nouns, or [[wikilinks]] in a single pass."),
+      text: opts.desc,
     });
 
     const listEl = panel.createDiv({ cls: "vm-replacements-list" });
@@ -1282,7 +1320,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         new Notice(t("Invalid replacement dictionary: {0}.", check.error));
         return false;
       }
-      this.host.settings.asrReplacements = check.rules;
+      opts.setRules(check.rules);
       await this.host.saveSettings();
       if (reRender) {
         renderRows();
@@ -1297,7 +1335,7 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       if (rules.length === 0) {
         listEl.createDiv({
           cls: "vm-replacements-empty",
-          text: t("No custom vocabulary rules configured yet."),
+          text: opts.emptyText,
         });
         return;
       }
