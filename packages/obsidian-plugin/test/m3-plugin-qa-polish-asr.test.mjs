@@ -545,6 +545,7 @@ describe("extractNoteQaContext & VoiceModeSettingTab M3 controls", () => {
     const names = quick.items.map((item) => item.name);
     assert.ok(names.some((name) => name.includes("Dictation on mobile")));
     assert.ok(!names.some((name) => name.includes("offline dictation")));
+    assert.ok(!names.some((name) => name.includes("local voice-daemon")));
   });
 
   it("exposes asrModel when effective ASR is openai-compat and wires enableLlmPolish dynamically", async () => {

@@ -324,17 +324,21 @@ export class VoiceModeSettingTab extends PluginSettingTab {
                   name: t("3 · Try dictation"),
                   desc: t("Run \"Dictate single utterance\" or \"Toggle voice dictation\", allow microphone access, and speak one sentence."),
                 },
+                {
+                  name: t("4 · Optional: better voices"),
+                  desc: t("Configure the local voice-daemon or a BYOK TTS provider under Read aloud."),
+                },
               ]
             : [
                 {
                   name: t("2 · Dictation on mobile"),
                   desc: t("Mobile dictation uses the browser's speech recognition when available; local WASM models are disabled to stay within memory limits."),
                 },
+                {
+                  name: t("3 · Optional: better voices"),
+                  desc: t("On mobile, configure a BYOK TTS provider under Read aloud; the local voice-daemon is desktop-only."),
+                },
               ]),
-          {
-            name: t("4 · Optional: better voices"),
-            desc: t("Configure the local voice-daemon or a BYOK TTS provider under Read aloud."),
-          },
         ],
       },
       {
