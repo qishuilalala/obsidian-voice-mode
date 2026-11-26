@@ -52,6 +52,26 @@ jobs:
       - name: Release & manifest gate
         run: pnpm run check:release
 
+  bench:
+    name: Bench smoke
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+
+      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
+        with:
+          node-version: 22
+
+      - name: Install pnpm
+        run: npm install -g pnpm@12.21.0 --force
+
+      - name: Install dependencies (frozen lockfile)
+        run: pnpm install --frozen-lockfile
+
+      - name: Bench smoke (C1 synthetic, report-only)
+        run: pnpm run bench:smoke
+
   audit:
     name: Security Audit
     runs-on: ubuntu-latest

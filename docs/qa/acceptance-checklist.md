@@ -52,7 +52,7 @@
 
 ### 1.5 M3/M4 实网 `MiMo` 云端朗读、全新空 Vault 手动 3 文件 + `BRAT 2.2.0` 双冒烟与构建门禁验收记录（2026-11-22 / Obsidian `1.15.1`）
 
-- **全仓门禁与 `release.yml` 本地校验**：`pnpm run check:all` 全绿（**`166` 项单测**：`76 core + 42 browser + 48 plugin`；`eslint --max-warnings 0 .` 零警告；`llm-router.ts = 396 行 < 400 行`；`main.js = 284.13 KB / 290,948 B < 1,024 KB`；`check:release` 7/7 全过；`TAG=0.1.0` 对 `manifest.json`、`package.json`、`versions.json`、`CHANGELOG.md` `## [0.1.0]` 及 3 附件校验 100% 通过）。
+- **全仓门禁与 `release.yml` 本地校验**：`pnpm run check:all` 全绿（单测数以 `pnpm test` 实测为准，2026-11-26 快照 **`181` 项**：`89 core + 42 browser + 50 plugin`；`eslint --max-warnings 0 .` 零警告；`llm-router.ts = 396 行 < 400 行`；`main.js = 284.13 KB / 290,948 B < 1,024 KB`；`check:release` 7/7 全过；`TAG=0.1.0` 对 `manifest.json`、`package.json`、`versions.json`、`CHANGELOG.md` `## [0.1.0]` 及 3 附件校验 100% 通过）。
 - **全新空 Vault（`/tmp/voice-mode-fresh-vault`）零软链手动 3 文件 + `BRAT 2.2.0` 共存冒烟**：目录树共 `8` 个文件、**`0` 个符号链接**；在真实 `/Applications/Obsidian.app`（`1.15.1`）冷启动启用 `voice-mode` 耗时 **`5.8 ms`**，启动期外联网络请求数 **`0`**、控制台/运行时错误数 **`0`**；`voice-mode@0.1.0`（`8` 项命令）与 `obsidian42-brat@2.2.0`（`17` 项命令）无冲突共存；测毕已删除临时空库并逐字节还原 `obsidian.json`（SHA256 100% 一致）。
 - **实网小米 `MiMo`（`https://api.xiaomimimo.com/v1/chat/completions`）云端朗读实测**：由内存态 CDP 瞬时注入 `app.secretStorage` 凭证并执行中英双语选区朗读，`MimoTtsEngine` 严格校验 `res.ok`（HTTP 2xx）与魔数嗅探后解码出 **`audio/wav`（`199,724 B`）**，真实 `HTMLAudioElement` 正常起播（时长 **`6.72 s`**，同步弹出底部双语字幕），主动执行 `stopReadAloud()` 耗时 **`1.3 ms < 100 ms`** 且字幕立即隐藏、状态归位 `idle`；测毕立即擦除 `SecretStorage` 临时项（`wipedSecretIsEmpty = true`），复核 `data.json`（`970 B`）密钥残留为 **`0`**。
 
