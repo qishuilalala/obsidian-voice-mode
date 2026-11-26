@@ -76,7 +76,6 @@ const simplifiedChinese = {
   "System speech recognition is unavailable in this mobile runtime.": "此移动端环境无法使用系统语音识别。",
   "Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for offline dictation.": "当前桌面版本不支持浏览器语音识别。请在设置中将识别引擎切换为 SenseVoice WASM 进行离线听写。",
   "Dictating": "正在听写",
-  "Browser speech recognition is unavailable in this desktop build. Switch recognition engine to SenseVoice WASM in settings for 100% offline dictation.": "当前桌面版本不支持浏览器语音识别。请在设置中将识别引擎切换为 SenseVoice WASM 进行全离线听写。",
   "Voice dictation error: {0}.": "听写出错：{0}。",
   "Voice dictation started.": "已开始听写。",
   "Could not start voice dictation: {0}": "无法开始听写：{0}",

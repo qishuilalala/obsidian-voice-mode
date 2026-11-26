@@ -450,6 +450,12 @@ describe("Obsidian interface language", () => {
     assert.equal(capturedNotices.at(-1), "请先输入或口述问题。");
     modal.close();
 
+    await plugin.startBrowserSpeechRecognitionFallback();
+    assert.equal(
+      capturedNotices.at(-1),
+      "当前桌面版本不支持浏览器语音识别。请在设置中将识别引擎切换为 SenseVoice WASM 进行离线听写。",
+    );
+
     const status = await plugin.collectRuntimeStatusJson();
     assert.equal(status.platform, "desktop");
     assert.equal(status.readAloudState, "idle");
