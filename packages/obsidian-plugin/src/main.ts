@@ -221,6 +221,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private readingNotePath: string | null = null;
   /** Sentence list and next index of the current run (P4 resume). */
   private activeReadAloudIndex = 0;
+  /** Guards against concurrent WAV export commands. */
+  private exportInProgress = false;
   private pointerHoldActive = false;
   private recognitionErrored = false;
   private overflowNotified = false;
@@ -2442,6 +2444,19 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
    * (local VITS or voice-daemon). System speech has no PCM to export.
    */
   private async exportReadAloudWav(): Promise<void> {
+    if (this.exportInProgress) {
+      new Notice(t("An export is already running."));
+      return;
+    }
+    this.exportInProgress = true;
+    try {
+      await this.exportReadAloudWavInner();
+    } finally {
+      this.exportInProgress = false;
+    }
+  }
+
+  private async exportReadAloudWavInner(): Promise<void> {
     const view = this.app.workspace.getActiveViewOfType(MarkdownView);
     if (!view) {
       new Notice(t("Open a note to export read-aloud audio."));
