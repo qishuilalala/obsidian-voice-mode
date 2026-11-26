@@ -194,6 +194,9 @@ export default defineConfig([
     files: ["packages/voice-core/src/**/*.ts"],
     rules: {
       "obsidianmd/ui/sentence-case": "off",
+      // Host-agnostic core: Obsidian window/popout guidance does not apply.
+      "obsidianmd/no-global-this": "off",
+      "obsidianmd/prefer-window-timers": "off",
       "obsidianmd/regex-lookbehind": "error",
       "obsidianmd/no-nodejs-modules": "error",
       "no-eval": "error",

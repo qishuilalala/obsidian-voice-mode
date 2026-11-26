@@ -225,3 +225,10 @@ export {
   type DetectedLanguage,
 } from './language-detect.ts'
 
+export {
+  DaemonStreamTranscriber,
+  type DaemonStreamFinal,
+  type DaemonStreamTranscriberOptions,
+} from './daemon-stream.ts'
+
+
