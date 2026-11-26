@@ -1,5 +1,7 @@
 import {
+  detectTextLanguage,
   mergeMonoPcm16WavChunks,
+  type DetectedLanguage,
   type TtsEngine,
   type TtsEngineKind,
   type TtsSynthOptions,
@@ -83,6 +85,27 @@ export function getSystemVoices(win: Window = window): SpeechSynthesisVoice[] {
   } catch {
     return [];
   }
+}
+
+/** Map a detected language to a BCP-47 hint, falling back to the configured language. */
+function resolveSentenceSpeechLanguage(sentence: string, configuredLanguage: string): string {
+  const detected: DetectedLanguage = detectTextLanguage(sentence);
+  const mapping: Partial<Record<DetectedLanguage, string>> = {
+    zh: "zh-CN",
+    ja: "ja-JP",
+    ko: "ko-KR",
+    en: "en-US",
+  };
+  const target = mapping[detected];
+  if (!target) {
+    return configuredLanguage;
+  }
+  // Respect an explicitly configured language (e.g. zh-TW or en-GB) for its own family.
+  const configuredFamily = configuredLanguage.split("-")[0]?.toLowerCase();
+  if (configuredFamily === target.split("-")[0]) {
+    return configuredLanguage;
+  }
+  return target;
 }
 
 function selectSystemVoice(
@@ -344,12 +367,15 @@ export class ObsidianAudioSink implements AudioSink {
       try {
         const utterance = new UtteranceCtor(sentence);
         utterance.rate = Math.min(2.0, Math.max(0.5, config.rate));
-        utterance.lang = config.language;
+        // P2-1: when no explicit voice is pinned, follow the sentence's language so
+        // mixed zh/en notes are spoken by the right system voice.
+        const sentenceLanguage = config.voice ? config.language : resolveSentenceSpeechLanguage(sentence, config.language);
+        utterance.lang = sentenceLanguage;
 
         const selectedVoice = selectSystemVoice(
           getSystemVoices(win),
           config.voice,
-          config.language,
+          sentenceLanguage,
         );
         if (selectedVoice) {
           utterance.voice = selectedVoice;

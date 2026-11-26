@@ -1072,4 +1072,61 @@ describe("SpeechPlayer read-aloud progress (P4)", () => {
     assert.ok(first.wav && second.wav);
     assert.equal(synthCalls, 1, "second export must reuse the cached WAV");
   });
+
+
+  it("hints per-sentence system speech language when no explicit voice is pinned", async () => {
+    const utterances = [];
+    class MockUtterance {
+      constructor(text) {
+        this.text = text;
+        this.rate = 1;
+        this.lang = "";
+        this.voice = null;
+        this.onend = null;
+        this.onerror = null;
+      }
+    }
+    const mockWin = {
+      SpeechSynthesisUtterance: MockUtterance,
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+      speechSynthesis: {
+        paused: false,
+        getVoices: () => [],
+        cancel: () => {},
+        speak: (u) => {
+          utterances.push(u);
+          queueMicrotask(() => u.onend?.());
+        },
+      },
+      URL,
+      Audio: class {},
+    };
+    const makePlayer = () =>
+      new SpeechPlayer(
+        { engine: "system", voice: "", rate: 1, language: "zh-CN" },
+        { onError: () => {} },
+        () => mockWin,
+        { speechWatchdogMs: 500 },
+      );
+    const english = makePlayer();
+    english.speakSentences(["Hello world, this is English."]);
+    await english.waitUntilDrained();
+    assert.equal(utterances[0].lang, "en-US");
+
+    const chinese = makePlayer();
+    chinese.speakSentences(["你好，这是中文。"]);
+    await chinese.waitUntilDrained();
+    assert.equal(utterances[1].lang, "zh-CN");
+
+    const pinned = new SpeechPlayer(
+      { engine: "system", voice: "Some Specific Voice", rate: 1, language: "zh-CN" },
+      { onError: () => {} },
+      () => mockWin,
+      { speechWatchdogMs: 500 },
+    );
+    pinned.speakSentences(["Hello again."]);
+    await pinned.waitUntilDrained();
+    assert.equal(utterances[2].lang, "zh-CN", "explicit voice keeps configured language");
+  });
 });
