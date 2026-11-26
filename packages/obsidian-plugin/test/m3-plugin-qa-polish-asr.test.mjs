@@ -404,7 +404,7 @@ describe("Obsidian interface language", () => {
       vault: { adapter: {} },
       workspace: { on: () => ({}), getActiveViewOfType: () => null },
     };
-    const plugin = new VoiceModePlugin(app, { id: "voice-mode" });
+    const plugin = new VoiceModePlugin(app, { id: "voice-mode", version: "0.1.0" });
     await plugin.onload();
     test.after(() => plugin.onunload());
     plugin.settings.dictationLanguage = "en-US";
@@ -449,6 +449,13 @@ describe("Obsidian interface language", () => {
     findButtonByText(modal.contentEl, "提问").trigger("click");
     assert.equal(capturedNotices.at(-1), "请先输入或口述问题。");
     modal.close();
+
+    const status = await plugin.collectRuntimeStatusJson();
+    assert.equal(status.platform, "desktop");
+    assert.equal(status.readAloudState, "idle");
+    assert.equal(typeof status.ttsEngine, "string");
+    assert.equal(typeof status.secretStorageAvailable, "boolean");
+    assert.equal(status.version, "0.1.0");
   });
 });
 
