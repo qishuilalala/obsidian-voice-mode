@@ -56,6 +56,8 @@ Please **do not** disclose security vulnerabilities in public GitHub issues, pul
 ### 4. Optional BYOK Cloud Endpoints (BYOK TTS, STT & LLM Q&A/Polish Shipped in M2–M3) / 可选自带密钥（BYOK）云端能力
 
 - Outbound requests to cloud TTS, STT, or LLM providers occur **only if you explicitly configure a provider and invoke a BYOK command** (and on mobile only when `Allow cloud fallback on mobile` is enabled).
+- **Preset endpoints used by the optional voice Q&A / transcript polish** (both features are **disabled by default**): DeepSeek (`https://api.deepseek.com`), DashScope Qwen (`https://dashscope.aliyuncs.com`), Volcengine Ark Doubao (`https://ark.cn-beijing.volces.com`), Moonshot Kimi (`https://api.moonshot.cn`), SiliconFlow (`https://api.siliconflow.cn`), OpenRouter (`https://openrouter.ai`), OpenAI (`https://api.openai.com`), Anthropic (`https://api.anthropic.com`), plus local Ollama (`http://127.0.0.1:11434`) / LM Studio (`http://127.0.0.1:1234`) and a custom base URL.
+- **Preset endpoints used by TTS/STT** (BYOK): Xiaomi MiMo (`https://api.xiaomimimo.com`) and any OpenAI-compatible `/audio/speech` / `/audio/transcriptions` endpoint you configure.
 - Requests are sent directly from your Obsidian client to the endpoint you configured (using native `fetch` with `redirect: 'error'`, or desktop zero-redirect Node HTTPS / mobile `requestUrl` when `Origin: app://obsidian.md` is blocked by provider CORS); this project operates **no relay server** and never sees your notes, audio, or API keys.
 
 ---
