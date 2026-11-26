@@ -9,6 +9,8 @@
 | [ADR-0003](0003-zero-dep-byok-llm-router-and-secret-storage.md) | 零依赖双协议 BYOK `llm-router` 与 Obsidian `SecretStorage` 凭证隔离 | Accepted | 2026-11-21 | 拒绝重型 AI SDK 与 `data.json` 明文密钥，统一 5 条安全红线 |
 | [ADR-0004](0004-obsidian-review-bot-and-sync-budget.md) | `eslint-plugin-obsidianmd` 门禁、5 MB Sync 预算与运行时模型/GPL 隔离 | Accepted | 2026-11-21 | 官方社区目录过审合规、Vault 外模型缓存与 `espeak-ng-data` GPL-3.0 隔离 |
 | [ADR-0005](0005-multi-repo-package-sharing-and-daemon-seam.md) | 跨仓共享编译包与本机语音客户端 `DaemonClient` | Accepted | 2026-11-22 | 为何 Wave 2/3 拆仓隔离 `node:*` / N-API / GPL、`dist/` 编译契约与四端共享 `DaemonClient` |
+| [ADR-0006](0006-expression-capability-contract.md) | 表达力能力契约与显式降级（E1/E2） | Accepted | 2026-11-26 | 13 维度能力契约、作用域标签、不静默丢弃、引擎映射与对外披露 |
+| [ADR-0007](0007-long-text-read-aloud-strategy.md) | 长文本朗读策略（背压 / 导出 / 续读） | Accepted | 2026-11-26 | 背压分批不丢尾、WAV 导出（仅 WAV 引擎）、断点续读与进度显示 |
 
 ## 编写约束
 
