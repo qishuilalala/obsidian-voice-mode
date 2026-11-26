@@ -7,12 +7,17 @@ import os from 'node:os'
 import path from 'node:path'
 
 const root = path.resolve(path.dirname(new URL(import.meta.url).pathname), '..')
-const products = [
-  { product: 'obsidian', repo: null },
-  { product: 'st', repo: '/mnt/sillytavern-voice-mode' },
-  { product: 'daemon', repo: '/mnt/voice-mode-daemon' },
-  { product: 'dsh', repo: '/mnt/dsh-voice-mode' },
-]
+// Optional companion checkouts for cross-product validation (never hardcode machine paths):
+// VOICE_MODE_COMPANION_ROOT=/path/to/parent with st/daemon/dsh subdirectories.
+const companionRoot = process.env.VOICE_MODE_COMPANION_ROOT?.trim() ?? ''
+const companions = companionRoot
+  ? [
+      { product: 'st', repo: path.join(companionRoot, 'sillytavern-voice-mode') },
+      { product: 'daemon', repo: path.join(companionRoot, 'voice-mode-daemon') },
+      { product: 'dsh', repo: path.join(companionRoot, 'dsh-voice-mode') },
+    ]
+  : []
+const products = [{ product: 'obsidian', repo: null }, ...companions]
 
 const failures = []
 for (const { product, repo } of products) {

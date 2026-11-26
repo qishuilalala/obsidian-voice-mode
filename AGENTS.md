@@ -24,7 +24,7 @@
 ## 提交前检查（2026-11-26 教训）
 
 - 删除任何 i18n key / 常量前，必须先跑完整 `pnpm run check:all`（含 typecheck）——只跑 `pnpm run test` 会漏掉类型错误（曾导致 CI 三平台失败）。
-- 推送后必须复核 CI 实际结论（`node ../voice-mode-private/scripts/check-ci.mjs` 或 `gh run list`）：push 成功 ≠ CI 绿。
+- 推送后必须复核 CI 实际结论（用维护者私有仓的 check-ci 脚本，或 `gh run list` 逐 workflow 检查）：push 成功 ≠ CI 绿。
 - 新增测试断言不得依赖本机缓存/状态（CI 是干净环境）；优先轮询条件而非固定短等待。
 
 ## 禁止
