@@ -14,6 +14,10 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 
 ### Added
 
+- **Expression capability disclosure and scoped tags (E1/E2)**: `@voice-mode/core` now exposes an `expression-caps` contract (13 facets, per-engine capability table, emotion levels) and extends the emotion DSL with `<slow>`, `<fast>`, `<spell>`, `<volume N>`, `<pitch N>` and `<emotion:NAME>` scopes; unsupported facets are disclosed instead of silently dropped.
+- **Read-aloud WAV export (P4/D-0012)**: `Export read-aloud as WAV` renders the selection or note through a WAV-capable engine into a single file inside the vault; system speech is reported as non-exportable.
+- **Long-note backpressure (P4/D-0012)**: read-aloud feeds the playback queue in bounded batches, so long notes no longer drop their tail.
+- **Shared duplex interaction state machine**: `@voice-mode/browser` exposes `duplex-protocol` (idle/listening/speaking/overlap/barge-in with yield/reset) for consistent barge-in behaviour across hosts.
 - Commands, settings and status messages follow the Obsidian interface language, with Simplified Chinese and English labels. The dictation language remains a separate setting. 简体中文界面跟随 Obsidian 的语言设置；「听写语言」只控制识别语种。
 
 - Browser hosts can use the shared Web Speech engine and HTML audio sink for playback, timed breaks and prosody.
