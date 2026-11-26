@@ -19,6 +19,9 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Long-note backpressure (P4/D-0012)**: read-aloud feeds the playback queue in bounded batches, so long notes no longer drop their tail.
 - **Shared duplex interaction state machine**: `@voice-mode/browser` exposes `duplex-protocol` (idle/listening/speaking/overlap/barge-in with yield/reset) for consistent barge-in behaviour across hosts.
 - Commands, settings and status messages follow the Obsidian interface language, with Simplified Chinese and English labels. The dictation language remains a separate setting. 简体中文界面跟随 Obsidian 的语言设置；「听写语言」只控制识别语种。
+- **Resume read-aloud**: `Resume read-aloud` continues from the last read position of the same note (`readAloudResume`), clamping to the valid range and prompting a restart when the note differs.
+- **Runtime status commands**: `Check voice runtime status` shows, and `Copy voice runtime status` copies, a structured snapshot (version, engine, platform, model state, barge-in policy) for issue reports.
+- **Quick start section in settings**: four guided steps (try read-aloud → optional offline dictation download → try dictation → optional better voices) reduce the first-run 245 MB model hesitation.
 
 - Browser hosts can use the shared Web Speech engine and HTML audio sink for playback, timed breaks and prosody.
 - Shared packages expose individual modules for bundlers. `pnpm run verify:matrix` rebuilds and compares the packaged bytes with the archives used by each available companion repository. For a full comparison, run `pnpm run verify:matrix --require-all` with all three companion checkouts in place. The manual GitHub Actions check compares the five archives at pinned companion commits.
