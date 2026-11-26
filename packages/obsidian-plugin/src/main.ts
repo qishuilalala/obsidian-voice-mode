@@ -2033,7 +2033,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     const manager = this.ensureDesktopModelManager();
     if (!manager) {
       this.pointerHoldActive = false;
-      new Notice(t("Local offline WASM dictation is disabled on mobile devices."));
+      new Notice(t("Local offline WASM dictation is disabled on mobile devices. Use browser recognition or a cloud ASR endpoint instead."));
       return;
     }
 
@@ -2512,7 +2512,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     if (effectiveTts === "vits-wasm") {
       const manager = this.ensureDesktopModelManager();
       if (!manager) {
-        new Notice(t("Local offline VITS speech synthesis is only available on desktop."));
+        new Notice(t("Local offline VITS speech synthesis is only available on desktop. Switch the speech engine to system speech or a cloud/local daemon engine."));
         return;
       }
       let status: DictationStackStatus;
@@ -2544,7 +2544,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       const result = await player.exportSentences(sentences);
       progress.hide();
       if (!result.wav) {
-        new Notice(t("Selected engine cannot export audio (no WAV output)."));
+        new Notice(t("Selected engine cannot export audio (no WAV output). Switch to a local WAV engine (VITS WASM or kokoro-daemon)."));
         return;
       }
       const buffer = result.wav.buffer.slice(
@@ -2636,7 +2636,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     if (effectiveTts === "vits-wasm") {
       const manager = this.ensureDesktopModelManager();
       if (!manager) {
-        new Notice(t("Local offline VITS speech synthesis is only available on desktop."));
+        new Notice(t("Local offline VITS speech synthesis is only available on desktop. Switch the speech engine to system speech or a cloud/local daemon engine."));
         return;
       }
       let status: DictationStackStatus;
