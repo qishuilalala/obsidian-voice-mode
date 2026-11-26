@@ -314,14 +314,23 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             name: t("1 · Try read-aloud"),
             desc: t("Run \"Read selection or note aloud\" from the command palette. System speech needs no model download."),
           },
-          {
-            name: t("2 · Optional: offline dictation"),
-            desc: t("Under Models & privacy, click \"Download or verify models\" (about 245 MB, stored outside your vault)."),
-          },
-          {
-            name: t("3 · Try dictation"),
-            desc: t("Run \"Dictate single utterance\" or \"Toggle voice dictation\", allow microphone access, and speak one sentence."),
-          },
+          ...(capabilities.allowLocalWasmModels
+            ? [
+                {
+                  name: t("2 · Optional: offline dictation"),
+                  desc: t("Under Models & privacy, click \"Download or verify models\" (about 245 MB, stored outside your vault)."),
+                },
+                {
+                  name: t("3 · Try dictation"),
+                  desc: t("Run \"Dictate single utterance\" or \"Toggle voice dictation\", allow microphone access, and speak one sentence."),
+                },
+              ]
+            : [
+                {
+                  name: t("2 · Dictation on mobile"),
+                  desc: t("Mobile dictation uses the browser's speech recognition when available; local WASM models are disabled to stay within memory limits."),
+                },
+              ]),
           {
             name: t("4 · Optional: better voices"),
             desc: t("Configure the local voice-daemon or a BYOK TTS provider under Read aloud."),

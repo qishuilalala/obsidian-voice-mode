@@ -533,6 +533,20 @@ describe("extractNoteQaContext & VoiceModeSettingTab M3 controls", () => {
     assert.deepEqual(empty, { scope: "empty", text: "", truncated: false });
   });
 
+  it("hides the offline-dictation quick-start step on mobile", async () => {
+    const host = {
+      settings: createDefaultSettings(),
+      capabilities: detectRuntimeCapabilities(true),
+      async saveSettings() {},
+    };
+    const tab = new VoiceModeSettingTab({}, host);
+    const groups = tab.getSettingDefinitions();
+    const quick = groups.find((group) => group.heading === "Quick start") ?? groups[0];
+    const names = quick.items.map((item) => item.name);
+    assert.ok(names.some((name) => name.includes("Dictation on mobile")));
+    assert.ok(!names.some((name) => name.includes("offline dictation")));
+  });
+
   it("exposes asrModel when effective ASR is openai-compat and wires enableLlmPolish dynamically", async () => {
     let saveCalls = 0;
     const host = {

@@ -102,6 +102,8 @@ const simplifiedChinese = {
   "3 · Try dictation": "3 · 试听写",
   "Run \"Dictate single utterance\" or \"Toggle voice dictation\", allow microphone access, and speak one sentence.": "运行「听写一句话」或「开始或停止听写」，允许麦克风权限后说一句话。",
   "4 · Optional: better voices": "4 · 可选：更好音色",
+  "2 · Dictation on mobile": "2 · 移动端听写",
+  "Mobile dictation uses the browser's speech recognition when available; local WASM models are disabled to stay within memory limits.": "移动端听写使用浏览器语音识别（可用时）；本地 WASM 模型为节省内存已禁用。",
   "Configure the local voice-daemon or a BYOK TTS provider under Read aloud.": "在「朗读」中配置本机 voice-daemon 或 BYOK 朗读服务商。",
   "Copy voice runtime status": "复制语音运行状态",
   "Voice runtime status copied to clipboard.": "语音运行状态已复制到剪贴板。",
