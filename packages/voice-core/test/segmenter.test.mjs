@@ -26,6 +26,29 @@ describe('segmenter: lookbehind-free guarantee', () => {
   })
 })
 
+describe('segmenter: performance guardrails', () => {
+  it('splits a 100k-character mixed note within a generous time budget', () => {
+    const paragraph = '这是一段用于性能测试的中文文本，包含标点、英文 word 和数字 123。'
+    const english = 'This is an English sentence used for the segmentation performance budget.'
+    const chunks = []
+    let total = 0
+    while (total < 100_000) {
+      const line = chunks.length % 2 === 0 ? paragraph : english
+      chunks.push(line)
+      total += line.length + 1
+    }
+    const text = chunks.join('\n')
+    assert.ok(text.length >= 100_000)
+
+    const started = performance.now()
+    const { sentences } = splitSentences(text)
+    const elapsed = performance.now() - started
+
+    assert.ok(sentences.length > 100, `expected many sentences, got ${sentences.length}`)
+    assert.ok(elapsed < 500, `segmentation took ${elapsed.toFixed(1)} ms (budget 500 ms)`)
+  })
+})
+
 describe('segmenter: Markdown table cleaning', () => {
   it('skips standard GFM pipe tables and alignment delimiters by default', () => {
     const md = [
