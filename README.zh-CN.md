@@ -112,6 +112,8 @@ Voice Mode 可以把口述内容写入当前笔记或侧栏输入框，也能跳
 5. **系统权限**：仅在用户主动开启听写或外放打断监听时申请麦克风权限。
 6. **许可证隔离**：本仓库代码采用 MIT 许可证；仓库与 GitHub Release **严禁打包**任何模型权重或 GPL-3.0 `espeak-ng-data` 音素数据，运行时独立下载的模型资产保留各自上游许可证（SenseVoice 为 FunAudioLLM，`sherpa-onnx` / Kokoro 为 Apache-2.0，`espeak-ng-data` 为 GPL-3.0）。
 
+   - **关于可选中文 VITS 模型（`vits-zh-ll`）**：其 Hugging Face 模型卡（`csukuangfj/vits-zh-ll`）未声明许可；sherpa-onnx 生态实践中按 Apache-2.0 使用，但上游未书面确认——如你需要许可明确的引擎，请改用系统语音、`kokoro-daemon` 或 BYOK 服务商。
+
 ---
 
 ## 本地开发与验证

@@ -107,6 +107,8 @@ In compliance with Obsidian Developer Policies, all network behavior, model down
 5. **Permissions**: Microphone access is requested only when you actively trigger voice dictation or barge-in listening.
 6. **License isolation**: Source code in this repository is MIT-licensed. No third-party model weights or GPL-3.0 `espeak-ng-data` phoneme archives are bundled in git or GitHub Releases; any runtime-downloaded model files retain their respective upstream licenses (`SenseVoice`: FunAudioLLM; `sherpa-onnx` / Kokoro: Apache-2.0; `espeak-ng-data`: GPL-3.0).
 
+   - **Note on the optional Chinese VITS model (`vits-zh-ll`)**: the Hugging Face model card (`csukuangfj/vits-zh-ll`) does not declare a license. The sherpa-onnx ecosystem treats these converted models as Apache-2.0 in practice, but this has not been confirmed in writing upstream — if you need a clearly-licensed engine, use `system`, `kokoro-daemon`, or a BYOK provider instead.
+
 ---
 
 ## Local Development & Verification
