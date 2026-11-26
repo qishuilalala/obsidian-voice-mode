@@ -2462,6 +2462,29 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       );
       return;
     }
+    if (effectiveTts === "vits-wasm") {
+      const manager = this.ensureDesktopModelManager();
+      if (!manager) {
+        new Notice(t("Local offline VITS speech synthesis is only available on desktop."));
+        return;
+      }
+      let status: DictationStackStatus;
+      try {
+        status = await manager.checkStatus();
+      } catch (err) {
+        const msg = redactSecrets(err instanceof Error ? err.message : String(err));
+        new Notice(t("Could not verify external model cache: {0}", msg));
+        return;
+      }
+      if (!status.vitsReady) {
+        new Notice(
+          t(
+            "Optional local VITS model is not installed yet. Download it in Voice Mode settings or switch speech engine to system.",
+          ),
+        );
+        return;
+      }
+    }
     this.syncSpeechPlayerEngines();
     const player = this.speechPlayer;
     if (!player) {
