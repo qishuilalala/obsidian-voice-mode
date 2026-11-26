@@ -482,3 +482,11 @@
   gap: 8px;
 }
 
+/* First-run model download guide (P0-4) */
+.vm-model-guide-status {
+  min-height: 1.2em;
+  margin: 0.5em 0;
+  color: var(--text-muted);
+  white-space: pre-wrap;
+}
+
