@@ -136,3 +136,14 @@ export {
   type SystemTtsSegment,
   type SystemTtsPayload,
 } from './system-tts-playback.ts'
+
+export {
+  DuplexProtocol,
+  type DuplexState,
+  type DuplexAction,
+  type DuplexEventType,
+  type DuplexEvent,
+  type DuplexTransition,
+  type DuplexSnapshot,
+  type DuplexProtocolOptions,
+} from './duplex-protocol.ts'
