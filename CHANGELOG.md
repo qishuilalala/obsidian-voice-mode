@@ -22,6 +22,12 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 - **Resume read-aloud**: `Resume read-aloud` continues from the last read position of the same note (`readAloudResume`), clamping to the valid range and prompting a restart when the note differs.
 - **Runtime status commands**: `Check voice runtime status` shows, and `Copy voice runtime status` copies, a structured snapshot (version, engine, platform, model state, barge-in policy) for issue reports.
 - **Quick start section in settings**: four guided steps (try read-aloud → optional offline dictation download → try dictation → optional better voices) reduce the first-run 245 MB model hesitation.
+- **Pronunciation dictionary for read-aloud (P1-2)**: `pronunciationDict` rewrites text before synthesis (e.g. `API` → `A P I`) using the same rule editor as the dictation vocabulary; read-aloud only.
+- **Per-sentence language switching (P2-1)**: system speech picks `utterance.lang`/voice by sentence language (zh-CN / en-US / ja-JP / ko-KR) when no voice is pinned; Kokoro voices switch between Chinese and English per sentence (`autoLanguageVoice`, on by default, toggleable in settings).
+- **First-run model download guide (P0-4)**: a modal explains the one-time offline download and starts it inline with progress (or "use system speech for now"), shown at most once per session from read-aloud/dictation when models are missing.
+- **Read-aloud WAV export synthesis cache (P1-4)**: repeated exports of the same sentences reuse synthesized audio within the session.
+- **Bench baseline regression in CI (P1-6)**: `scripts/check-bench.mjs` validates the `bench@1` report schema (product/corpus/version/gitSha/gate) in the bench CI job.
+- **Shared language detection (P2-1 groundwork)**: `@voice-mode/core` exposes `detectTextLanguage` / `detectPresentLanguages` (zh / ja / ko / en / mixed) and is consumed by the language-aware speech paths above.
 
 - Browser hosts can use the shared Web Speech engine and HTML audio sink for playback, timed breaks and prosody.
 - Shared packages expose individual modules for bundlers. `pnpm run verify:matrix` rebuilds and compares the packaged bytes with the archives used by each available companion repository. For a full comparison, run `pnpm run verify:matrix --require-all` with all three companion checkouts in place. The manual GitHub Actions check compares the five archives at pinned companion commits.
