@@ -422,11 +422,11 @@ describe("Obsidian interface language", () => {
 
     const tab = new VoiceModeSettingTab(app, plugin);
     const groups = tab.getSettingDefinitions();
-    assert.deepEqual(groups.map((group) => group.heading), ["语音输入", "朗读", "AI 模型", "模型与隐私"]);
-    const engine = groups[0].items.find((item) => item.control?.key === "asrEngine");
+    assert.deepEqual(groups.map((group) => group.heading), ["快速开始", "语音输入", "朗读", "AI 模型", "模型与隐私"]);
+    const engine = groups[1].items.find((item) => item.control?.key === "asrEngine");
     assert.equal(engine.name, "识别引擎");
     assert.equal(engine.control.options["sensevoice-wasm"], "SenseVoice WASM（桌面离线）");
-    const providers = groups[2].items.find((item) => item.control?.key === "llmPresetId");
+    const providers = groups[3].items.find((item) => item.control?.key === "llmPresetId");
     assert.equal(providers.control.options["volcengine-doubao"], "火山方舟（豆包）");
     assert.equal(providers.control.options.openai, "OpenAI");
     assert.equal(tab.getControlValue("dictationLanguage"), "en-US");
@@ -538,8 +538,8 @@ describe("extractNoteQaContext & VoiceModeSettingTab M3 controls", () => {
 
     const tab = new VoiceModeSettingTab({}, host);
     const defsBefore = tab.getSettingDefinitions();
-    const voiceGroup = defsBefore[0];
-    const aiGroup = defsBefore[2];
+    const voiceGroup = defsBefore[1];
+    const aiGroup = defsBefore[3];
     const asrModelItem = voiceGroup.items.find((i) => i.name === "Transcription model override");
     const polishItem = aiGroup.items.find((i) => i.name === "Post-dictation LLM polish");
 

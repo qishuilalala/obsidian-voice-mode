@@ -308,6 +308,28 @@ export class VoiceModeSettingTab extends PluginSettingTab {
     return [
       {
         type: "group",
+        heading: t("Quick start"),
+        items: [
+          {
+            name: t("1 · Try read-aloud"),
+            desc: t("Run \"Read selection or note aloud\" from the command palette. System speech needs no model download."),
+          },
+          {
+            name: t("2 · Optional: offline dictation"),
+            desc: t("Under Models & privacy, click \"Download or verify models\" (about 245 MB, stored outside your vault)."),
+          },
+          {
+            name: t("3 · Try dictation"),
+            desc: t("Run \"Dictate single utterance\" or \"Toggle voice dictation\", allow microphone access, and speak one sentence."),
+          },
+          {
+            name: t("4 · Optional: better voices"),
+            desc: t("Configure the local voice-daemon or a BYOK TTS provider under Read aloud."),
+          },
+        ],
+      },
+      {
+        type: "group",
         heading: t("Voice input"),
         items: [
           {
