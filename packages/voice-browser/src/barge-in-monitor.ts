@@ -482,3 +482,46 @@ export class AecBargeInMonitor {
     }
   }
 }
+
+export interface BargeInGuardOptions {
+  /** Returns whether barge-in monitoring should be armed for this utterance (`manual` callers return false). */
+  shouldArm: (engineIsSystem: boolean) => boolean
+  /** Start microphone monitoring; callers own async error handling (fire-and-forget is fine). */
+  arm: () => void
+  /** Stop microphone monitoring. */
+  disarm: () => void
+}
+
+export interface BargeInGuard {
+  /** Re-evaluate the target from one utterance's ACTUAL playback engine; de-duplicates repeated targets. */
+  update: (engineIsSystem: boolean) => void
+  /** Cancel/turn-end: disarm if armed and clear the cached target so the next turn starts clean. */
+  reset: () => void
+}
+
+/**
+ * Per-utterance AEC3 barge-in arm/disarm guard.
+ *
+ * Feed it the actual playback engine of every utterance (`from onPlayStart / info.engine`), not the
+ * configured or predicted engine: `update(info.engine === 'system')`. The guard only calls
+ * `arm`/`disarm` when the desired state actually changes, so consecutive utterances on the same path
+ * never close/reopen the microphone (which would restart AEC3 convergence). Call `reset()` when
+ * playback is cancelled or a turn ends: it disarms if needed and clears the cache so stale armed
+ * state never leaks into the next turn.
+ */
+export function createBargeInGuard(options: BargeInGuardOptions): BargeInGuard {
+  let targetArmed = false
+  return {
+    update(engineIsSystem: boolean): void {
+      const wantArmed = options.shouldArm(engineIsSystem)
+      if (wantArmed === targetArmed) return
+      targetArmed = wantArmed
+      if (wantArmed) options.arm()
+      else options.disarm()
+    },
+    reset(): void {
+      if (targetArmed) options.disarm()
+      targetArmed = false
+    },
+  }
+}

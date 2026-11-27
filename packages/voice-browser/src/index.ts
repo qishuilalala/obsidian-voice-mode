@@ -108,6 +108,7 @@ export {
   DEFAULT_BARGE_IN_CONFIRM_CHUNKS,
   computeChunkRms,
   createBargeInMicCapture,
+  createBargeInGuard,
   AecBargeInMonitor,
   type BargeInMonitorState,
   type BargeInCaptureHandle,
@@ -115,6 +116,8 @@ export {
   type BargeInStartOptions,
   type BargeInStartResult,
   type BargeInEvent,
+  type BargeInGuard,
+  type BargeInGuardOptions,
   type AecBargeInMonitorOptions,
 } from './barge-in-monitor.ts'
 
