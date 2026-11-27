@@ -337,6 +337,185 @@ describe("VoiceModePlugin kokoro-daemon TTS and daemon ASR integration with < 1s
     return { spokenSystemSentences, playedBinaryUrls };
   }
 
+  it("resumes interrupted whole-note speech, preserves the bookmark during selections and clears it after completion", async () => {
+    setupWindowEnv();
+    let selected = "";
+    let utterance;
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+    window.speechSynthesis.speak = (current) => { utterance = current; };
+    const view = {
+      file: { path: "A.md" },
+      editor: { getValue: () => "甲。甲。丙。", getSelection: () => selected },
+    };
+    const events = {};
+    const plugin = new VoiceModePlugin({
+      workspace: {
+        getActiveViewOfType: () => view,
+        on: (event, callback) => { events[event] = callback; },
+      },
+      vault: { adapter: {} },
+    }, { id: "voice-mode" });
+    try {
+      await plugin.onload();
+      plugin.settings.enableSubtitleOverlay = false;
+      const run = (id) => plugin._commands.find((command) => command.id === id).callback();
+      const bookmark = (index) => ({ path: "A.md", sentenceIndex: index });
+      run("read-aloud");
+      await turn();
+      assert.equal(utterance.text, "甲。");
+      run("stop-read-aloud");
+      await turn();
+      assert.deepEqual(plugin._savedData.readAloudResume, bookmark(0));
+
+      selected = "选区。";
+      run("read-aloud");
+      await turn();
+      assert.equal(utterance.text, selected);
+      utterance.onend();
+      await turn();
+      assert.deepEqual(plugin.settings.readAloudResume, bookmark(0));
+
+      run("resume-read-aloud");
+      // Skip the first sentence while synthesis is pending, before the first start event.
+      run("skip-read-aloud-sentence");
+      await turn();
+      assert.equal(utterance.text, "甲。");
+      assert.deepEqual(plugin.settings.readAloudResume, bookmark(1));
+      utterance.onerror({ error: "interrupted" });
+      await turn();
+      assert.deepEqual(plugin._savedData.readAloudResume, bookmark(1));
+
+      run("resume-read-aloud");
+      await turn();
+      assert.equal(utterance.text, "甲。");
+      utterance.onend();
+      await turn();
+      assert.equal(utterance.text, "丙。");
+      events["file-open"]({ path: "B.md" });
+      await turn();
+      assert.deepEqual(plugin._savedData.readAloudResume, bookmark(2));
+      run("resume-read-aloud");
+      await turn();
+      assert.equal(utterance.text, "丙。");
+      utterance.onend();
+      await turn();
+      assert.equal(plugin._savedData.readAloudResume, null);
+
+      run("resume-read-aloud");
+      await turn();
+      run("skip-read-aloud-sentence");
+      run("stop-read-aloud");
+      await turn();
+      assert.deepEqual(plugin._savedData.readAloudResume, bookmark(1));
+      run("resume-read-aloud");
+      await turn();
+      run("skip-read-aloud-sentence");
+      await turn();
+      assert.equal(utterance.text, "丙。");
+      run("skip-read-aloud-sentence");
+      await turn();
+      assert.equal(plugin._savedData.readAloudResume, null);
+    } finally {
+      plugin.onunload();
+      delete globalThis.window;
+      delete globalThis.activeWindow;
+      delete globalThis.activeDocument;
+    }
+  });
+
+  it("honors stop and note-switch settings during a pending VITS readiness check", async () => {
+    setupWindowEnv();
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+    const events = {};
+    const view = {
+      file: { path: "A.md" },
+      editor: { getValue: () => "甲。", getSelection: () => "" },
+    };
+    const plugin = new VoiceModePlugin({
+      workspace: {
+        getActiveViewOfType: () => view,
+        on: (event, callback) => { events[event] = callback; },
+      },
+      vault: { adapter: {} },
+    }, { id: "voice-mode" });
+    try {
+      await plugin.onload();
+      plugin.settings.ttsEngine = "vits-wasm";
+      plugin.settings.enableSubtitleOverlay = false;
+      const queued = [];
+      plugin.speechPlayer.speakSentences = (sentences) => queued.push(...sentences);
+      const run = (id) => plugin._commands.find((command) => command.id === id).callback();
+      for (const action of ["stop", "file-open", "active-leaf-change", "keep-reading"]) {
+        const gate = Promise.withResolvers();
+        plugin.ensureDesktopModelManager = () => ({ checkStatus: () => gate.promise });
+        view.file.path = "A.md";
+        run("read-aloud");
+        if (action === "stop") {
+          run("stop-read-aloud");
+        } else {
+          plugin.settings.stopReadAloudOnNoteSwitch = action !== "keep-reading";
+          view.file.path = "B.md";
+          events[action === "keep-reading" ? "file-open" : action]({ path: "B.md" });
+        }
+        gate.resolve({ vitsReady: true });
+        await turn();
+        assert.deepEqual(queued, action === "keep-reading" ? ["甲。"] : [], action);
+        assert.deepEqual(plugin.settings.readAloudResume, action === "keep-reading"
+          ? { path: "A.md", sentenceIndex: 0 } : null, action);
+      }
+    } finally {
+      plugin.onunload();
+      delete globalThis.window;
+      delete globalThis.activeWindow;
+      delete globalThis.activeDocument;
+    }
+  });
+
+  it("serializes a delayed settings save with a new note bookmark and flushes it on unload", async () => {
+    setupWindowEnv();
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+    window.speechSynthesis.speak = () => {};
+    const view = {
+      file: { path: "A.md" },
+      editor: { getValue: () => "甲。乙。", getSelection: () => "" },
+    };
+    const plugin = new VoiceModePlugin({
+      workspace: { getActiveViewOfType: () => view, on: () => ({}) },
+      vault: { adapter: {} },
+    }, { id: "voice-mode" });
+    let unloaded = false;
+    try {
+      await plugin.onload();
+      plugin.settings.enableSubtitleOverlay = false;
+      const run = (id) => plugin._commands.find((command) => command.id === id).callback();
+      const saved = [];
+      const gate = Promise.withResolvers();
+      plugin.saveData = async (data) => {
+        if (!saved.length) await gate.promise;
+        saved.push(data.readAloudResume?.path);
+      };
+      run("read-aloud");
+      const settingsSaved = plugin.saveSettings();
+      await turn();
+      view.file.path = "B.md";
+      run("read-aloud");
+      await turn();
+      plugin.onunload();
+      unloaded = true;
+      assert.deepEqual(saved, []);
+      gate.resolve();
+      await settingsSaved;
+      await turn();
+      assert.equal(saved[0], "A.md");
+      assert.equal(saved.at(-1), "B.md");
+    } finally {
+      if (!unloaded) plugin.onunload();
+      delete globalThis.window;
+      delete globalThis.activeWindow;
+      delete globalThis.activeDocument;
+    }
+  });
+
   it("synthesizes kokoro-daemon WAV with SecretStorage token and falls back in < 1s to vits-wasm or system TTS", async () => {
     const env = setupWindowEnv();
     try {
@@ -380,6 +559,7 @@ describe("VoiceModePlugin kokoro-daemon TTS and daemon ASR integration with < 1s
         throw new Error("DaemonClient must use native browser fetch, not corsFetch");
       };
       let seenSpeechAuth = "";
+      let seenSpeechVoice;
       let daemonMode = "online"; // "online" | "unauth"
       globalThis.activeWindow.fetch = async (url, init) => {
         const u = String(url);
@@ -394,6 +574,7 @@ describe("VoiceModePlugin kokoro-daemon TTS and daemon ASR integration with < 1s
         }
         assert.equal(u, "https://127.0.0.1:18790/v1/audio/speech");
         seenSpeechAuth = init?.headers?.Authorization ?? "";
+        seenSpeechVoice = JSON.parse(init.body).voice;
         if (daemonMode === "online") {
           return new Response(makeWavFixture(), {
             status: 200,
@@ -410,6 +591,20 @@ describe("VoiceModePlugin kokoro-daemon TTS and daemon ASR integration with < 1s
       assert.equal(corsFetchCalled, 0);
       assert.equal(seenSpeechAuth, "Bearer test-daemon-secret-tok");
       assert.equal(env.playedBinaryUrls.length, 1);
+
+      mockEditor.getSelection = () => "This sentence is in English.";
+      plugin.settings.ttsVoice = "zf_xiaobei";
+      plugin.settings.autoLanguageVoice = false;
+      await plugin.saveSettings();
+      await readCmd.callback();
+      await plugin.speechPlayer.waitUntilDrained();
+      assert.equal(seenSpeechVoice, "zf_xiaobei");
+      plugin.settings.autoLanguageVoice = true;
+      await plugin.saveSettings();
+      await readCmd.callback();
+      await plugin.speechPlayer.waitUntilDrained();
+      assert.equal(seenSpeechVoice, "af_maple");
+      mockEditor.getSelection = () => "守护进程朗读测试。";
 
       // 2. Offline/401 fallback in < 1s to VITS WASM when vitsReady === true
       daemonMode = "unauth";
@@ -444,7 +639,7 @@ describe("VoiceModePlugin kokoro-daemon TTS and daemon ASR integration with < 1s
           m.includes("Local voice daemon is offline or unauthorized; falling back to VITS WASM"),
         ),
       );
-      assert.equal(env.playedBinaryUrls.length, 2);
+      assert.equal(env.playedBinaryUrls.length, 4);
 
       // 3. Offline/401 fallback in < 1s to system TTS when VITS is not installed (reset cooldown via saveSettings)
       vitsInstalled = false;

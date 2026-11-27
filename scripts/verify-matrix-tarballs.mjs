@@ -26,12 +26,10 @@ const consumers = [
 // D-0021 it stays frozen on the previous core until its next release rebuilds
 // lib/ and the vendored archive together. Set VOICE_MODE_MATRIX_SKIP=dsh-voice-mode
 // to acknowledge the known stale archive; the default stays strict.
-const skipRepos = new Set(
-  String(process.env.VOICE_MODE_MATRIX_SKIP ?? "")
-    .split(",")
-    .map((value) => value.trim())
-    .filter(Boolean),
-);
+const exemptRepo = (process.env.VOICE_MODE_MATRIX_SKIP ?? "").trim();
+if (exemptRepo && exemptRepo !== "dsh-voice-mode") {
+  throw new Error("D-0021 only permits VOICE_MODE_MATRIX_SKIP=dsh-voice-mode");
+}
 
 function sha256(file) {
   return createHash("sha256").update(fs.readFileSync(file)).digest("hex");
@@ -64,7 +62,7 @@ try {
   }
 
   for (const { repo, vendor, packages } of consumers) {
-    if (skipRepos.has(repo)) {
+    if (repo === exemptRepo) {
       console.log(`[SKIP] ${repo} exempted via VOICE_MODE_MATRIX_SKIP (known stale core, see D-0021)`);
       continue;
     }

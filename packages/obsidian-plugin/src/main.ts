@@ -221,12 +221,15 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   private startingDictation = false;
   private dictationStartEpoch = 0;
   private readAloudStartEpoch = 0;
+  private pendingReadAloudPath: string | null = null;
   /** P0-4: only one inline model-download guide per session. */
   private modelGuideShown = false;
   private settingsWriteEpoch = 0;
   private readingNotePath: string | null = null;
-  /** Sentence list and next index of the current run (P4 resume). */
-  private activeReadAloudIndex = 0;
+  private bookmarkStartIndex: number | null = null;
+  private bookmarkSaveTimer: number | null = null;
+  private bookmarkSaveFailed = false;
+  private settingsWrite: Promise<void> = Promise.resolve();
   /** Guards against concurrent WAV export commands. */
   private exportInProgress = false;
   private pointerHoldActive = false;
@@ -256,16 +259,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           this.handlePlaybackStateChange(state);
         },
         onSentenceStart: (sentence, index, total) => {
-          this.activeReadAloudIndex += 1;
-          if (this.readingNotePath) {
-            this.settings.readAloudResume = {
-              path: this.readingNotePath,
-              sentenceIndex: this.activeReadAloudIndex,
-            };
-            void this.saveSettings();
-          }
-          const progress = total > 1 ? ` (${index + 1}/${total})` : "";
+          const offset = this.bookmarkStartIndex ?? 0;
+          this.recordReadAloudPosition(offset + index);
+          const progress = offset + total > 1 ? ` (${offset + index + 1}/${offset + total})` : "";
           this.showSubtitleOverlay(t("Reading aloud") + progress, sentence, undefined, true);
+        },
+        onSentenceEnd: (index, total) => {
+          this.recordReadAloudPosition(index + 1 === total ? null : (this.bookmarkStartIndex ?? 0) + index + 1);
         },
         onEngineFallback: (requested) => {
           if (requested === "kokoro-daemon") {
@@ -300,35 +300,24 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.mountStatusBar();
     this.mountSubtitleOverlay(activeDocument);
 
-    this.registerEvent(
-      this.app.workspace.on("active-leaf-change", () => {
-        if (!this.settings.stopReadAloudOnNoteSwitch || !this.speechPlayer?.isActive) {
-          return;
-        }
-        const activeView = this.app.workspace.getActiveViewOfType(MarkdownView);
-        const activePath = activeView?.file?.path ?? null;
-        if (activePath !== this.readingNotePath) {
-          this.stopReadAloudSilently();
-        }
-      }),
-    );
-
-    this.registerEvent(
-      this.app.workspace.on("file-open", (file) => {
-        if (!this.settings.stopReadAloudOnNoteSwitch || !this.speechPlayer?.isActive) {
-          return;
-        }
-        const nextPath = file?.path ?? null;
-        if (nextPath !== this.readingNotePath) {
-          this.stopReadAloudSilently();
-        }
-      }),
-    );
-
-    this.registerDomEvent(window, "pagehide", () => {
-      if (this.speechPlayer?.isActive) {
+    const stopOnNoteSwitch = (path: string | null): void => {
+      if (
+        this.settings.stopReadAloudOnNoteSwitch &&
+        (this.pendingReadAloudPath !== null || this.speechPlayer?.isActive) &&
+        path !== (this.pendingReadAloudPath ?? this.readingNotePath)
+      ) {
         this.stopReadAloudSilently();
       }
+    };
+    this.registerEvent(
+      this.app.workspace.on("active-leaf-change", () => {
+        stopOnNoteSwitch(this.app.workspace.getActiveViewOfType(MarkdownView)?.file?.path ?? null);
+      }),
+    );
+    this.registerEvent(this.app.workspace.on("file-open", (file) => stopOnNoteSwitch(file?.path ?? null)));
+
+    this.registerDomEvent(window, "pagehide", () => {
+      if (this.speechPlayer?.isActive || this.pendingReadAloudPath !== null) this.stopReadAloudSilently();
     });
 
     this.addRibbonIcon("mic", t("Toggle voice dictation"), () => {
@@ -427,8 +416,10 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   }
 
   onunload(): void {
+    this.flushBookmarkSave();
     this.dictationStartEpoch += 1;
     this.readAloudStartEpoch += 1;
+    this.pendingReadAloudPath = null;
     this.bargeInStateEpoch += 1;
     this.readingNotePath = null;
     this.startingDictation = false;
@@ -525,17 +516,49 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
 
   async loadSettings(): Promise<void> {
     const epoch = this.settingsWriteEpoch;
+    await this.settingsWrite;
     const raw: unknown = await this.loadData();
     if (epoch === this.settingsWriteEpoch) {
       Object.assign(this.settings, normalizeSettings(raw));
     }
   }
 
+  private persistSettings(): Promise<void> {
+    const write = this.settingsWrite.then(() => this.saveData(stripSecretsFromSettings(this.settings)));
+    this.settingsWrite = write.catch(() => undefined);
+    return write;
+  }
+
+  private recordReadAloudPosition(
+    sentenceIndex: number | null,
+    path = this.bookmarkStartIndex === null ? null : this.readingNotePath,
+  ): void {
+    if (!path) return;
+    const current = this.settings.readAloudResume;
+    if (current?.path === path && current.sentenceIndex === sentenceIndex) return;
+    this.settings.readAloudResume = sentenceIndex === null ? null : { path, sentenceIndex };
+    this.settingsWriteEpoch += 1;
+    if (this.bookmarkSaveTimer === null) {
+      this.bookmarkSaveTimer = window.setTimeout(() => this.flushBookmarkSave(), 500);
+    }
+  }
+
+  private flushBookmarkSave(): void {
+    if (this.bookmarkSaveTimer === null && !this.bookmarkSaveFailed) return;
+    if (this.bookmarkSaveTimer !== null) window.clearTimeout(this.bookmarkSaveTimer);
+    this.bookmarkSaveTimer = null;
+    this.bookmarkSaveFailed = false;
+    void this.persistSettings().catch(() => {
+      this.bookmarkSaveFailed = true;
+      new Notice(t("Could not save the read-aloud position."));
+    });
+  }
+
   async saveSettings(): Promise<void> {
     this.settingsWriteEpoch += 1;
     const normalized = normalizeSettings(stripSecretsFromSettings(this.settings));
     Object.assign(this.settings, normalized);
-    await this.saveData(stripSecretsFromSettings(this.settings));
+    await this.persistSettings();
 
     this.lastBargeInDecision = null;
     this.polishFallbackNotified = false;
@@ -553,6 +576,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         voice: this.settings.ttsVoice,
         rate: this.settings.speechRate,
         language: this.settings.dictationLanguage,
+        autoLanguageVoice: this.settings.autoLanguageVoice,
       });
       this.syncSpeechPlayerEngines();
       if (this.bargeInMonitor) {
@@ -746,6 +770,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
     this.dictationStartEpoch += 1;
     this.readAloudStartEpoch += 1;
+    this.pendingReadAloudPath = null;
     this.bargeInStateEpoch += 1;
     this.startingDictation = false;
     this.pointerHoldActive = false;
@@ -1116,6 +1141,8 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
 
     void this.syncBargeInForPlaybackState(state);
+    this.flushBookmarkSave();
+    this.bookmarkStartIndex = null;
     this.readingNotePath = null;
     this.updateSubtitlePlaybackControls(false, false);
     if (!this.isDictationBusy() && this.currentStatus !== "error") {
@@ -2377,6 +2404,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
           this.syncSpeechPlayerEngines();
           this.overflowNotified = false;
           this.speechPlayer.cancel();
+          this.bookmarkStartIndex = null;
           this.readingNotePath = originView?.file?.path ?? null;
         }
         this.speechPlayer.speakSentences([sentence]);
@@ -2575,7 +2603,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       if (resume && resume.path !== path) {
         new Notice(t("Nothing to resume for this note; reading from the beginning."));
       }
-      await this.readSelectionOrNoteAloud();
+      await this.readSelectionOrNoteAloud({ startIndex: 0 });
       return;
     }
     await this.readSelectionOrNoteAloud({ startIndex: resume.sentenceIndex });
@@ -2615,10 +2643,12 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       return;
     }
 
+    const notePath = view.file?.path ?? null;
+    const selection = options.startIndex === undefined ? view.editor.getSelection() : "";
     const rawSentences = extractReadableText(view.editor, {
       maxSentenceChars: this.settings.maxSentenceChars,
       tablePolicy: this.settings.markdownTablePolicy,
-    });
+    }, selection);
     // Expression tags (E2) are parsed by core but the Obsidian UI does not apply them to
     // engines yet, so strip them here: reading the tag names aloud would be worse than
     // ignoring the tags (declared behavior in README).
@@ -2632,6 +2662,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     }
 
     const startEpoch = ++this.readAloudStartEpoch;
+    this.pendingReadAloudPath = null;
     if (
       this.capabilities.isMobile &&
       !this.settings.allowCloudFallbackOnMobile &&
@@ -2650,12 +2681,16 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
         return;
       }
       let status: DictationStackStatus;
+      this.pendingReadAloudPath = notePath ?? "";
       try {
         status = await manager.checkStatus();
       } catch (err) {
+        if (startEpoch !== this.readAloudStartEpoch) return;
         const msg = redactSecrets(err instanceof Error ? err.message : String(err));
         new Notice(t("Could not verify external model cache: {0}", msg));
         return;
+      } finally {
+        if (startEpoch === this.readAloudStartEpoch) this.pendingReadAloudPath = null;
       }
       if (startEpoch !== this.readAloudStartEpoch) {
         return;
@@ -2676,16 +2711,13 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
     this.syncSpeechPlayerEngines();
     this.overflowNotified = false;
     this.speechPlayer?.cancel();
-    this.readingNotePath = view.file?.path ?? null;
+    this.readingNotePath = notePath;
     const startIndex = Math.min(
       Math.max(0, options.startIndex ?? 0),
       Math.max(0, sentences.length - 1),
     );
-    this.activeReadAloudIndex = startIndex;
-    if (this.readingNotePath) {
-      this.settings.readAloudResume = { path: this.readingNotePath, sentenceIndex: startIndex };
-      void this.saveSettings();
-    }
+    this.bookmarkStartIndex = selection.trim() ? null : startIndex;
+    this.recordReadAloudPosition(startIndex);
     const queued = this.speechPlayer?.speakSentences(sentences.slice(startIndex)) ?? 0;
     if (queued > 0) {
       new Notice(queued === 1 ? t("Reading 1 sentence aloud.") : t("Reading {0} sentences aloud.", queued));
@@ -2705,10 +2737,18 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
       new Notice(t("Read-aloud is not currently active."));
       return;
     }
-    this.speechPlayer.skipCurrent();
+    // Skipping the final sentence synchronously idles the player and clears its note context.
+    const offset = this.bookmarkStartIndex;
+    const path = this.readingNotePath;
+    this.speechPlayer.skipCurrent((nextIndex) => {
+      if (offset === null) return;
+      this.recordReadAloudPosition(nextIndex === null ? null : offset + nextIndex, path);
+      if (nextIndex === null) this.flushBookmarkSave();
+    });
   }
 
   private stopReadAloudSilently(): void {
+    this.pendingReadAloudPath = null;
     this.readAloudStartEpoch += 1;
     this.readingNotePath = null;
     this.speechPlayer?.cancel();
@@ -2720,7 +2760,7 @@ export default class VoiceModePlugin extends Plugin implements VoiceModePluginHo
   }
 
   private stopReadAloud(): void {
-    if (!this.speechPlayer?.isActive) {
+    if (!this.speechPlayer?.isActive && this.pendingReadAloudPath === null) {
       new Notice(t("Read-aloud is not currently playing."));
       return;
     }

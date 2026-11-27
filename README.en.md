@@ -23,6 +23,8 @@ English | [简体中文](README.md)
 2. Copy `main.js`, `manifest.json`, and `styles.css` into your vault’s `.obsidian/plugins/voice-mode/` folder. Reload Obsidian, open **Settings → Community plugins**, and enable **Voice Mode**.
 3. Select a paragraph and run `Read selection or note aloud` from the command palette. For offline dictation, use `Download or verify models` in Voice Mode settings and confirm `SenseVoice WASM (desktop offline)` under `Recognition engine`. Place the cursor in a note and run `Dictate single utterance`.
 
+**Resume read-aloud** continues at the interrupted sentence of the active note. Finishing the note clears its bookmark. Reading a selection or an AI answer preserves the whole-note bookmark.
+
 ## Why Voice Mode?
 
 Most Obsidian voice plugins force an awkward trade-off: either require users to manually install and run an external local WebSocket server, upload private notes and audio to third-party cloud services, or read raw Markdown symbols (`| --- |`, code fences, URLs) aloud verbatim.

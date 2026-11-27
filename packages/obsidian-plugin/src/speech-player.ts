@@ -35,6 +35,7 @@ export interface SpeechPlayerConfig {
 export interface SpeechPlayerHooks {
   onStateChange?: (state: PlaybackQueueState) => void;
   onSentenceStart?: (sentence: string, index: number, total: number) => void;
+  onSentenceEnd?: (index: number, total: number) => void;
   onDrop?: (droppedText: string, reason: "overflow") => void;
   onEngineFallback?: (requested: TtsEngineKind, fallback: "system") => void;
   onError?: (error: unknown, sentence: string) => void;
@@ -172,6 +173,7 @@ export class ObsidianAudioSink implements AudioSink {
   private readonly getConfig: () => SpeechPlayerConfig;
   private readonly getWindow: () => SpeechRuntimeWindow;
   private readonly watchdogOverrideMs?: number;
+  private readonly onPlaybackEnd?: () => void;
 
   private activeSynthWindow: SpeechRuntimeWindow | null = null;
   private activeSystemSpeech: ActiveSystemUtterance | null = null;
@@ -181,21 +183,25 @@ export class ObsidianAudioSink implements AudioSink {
     getConfig: () => SpeechPlayerConfig,
     getWindow: () => Window = () => window,
     speechWatchdogMs?: number,
+    onPlaybackEnd?: () => void,
   ) {
     this.getConfig = getConfig;
     this.getWindow = () => getWindow() as SpeechRuntimeWindow;
     this.watchdogOverrideMs = speechWatchdogMs;
+    this.onPlaybackEnd = onPlaybackEnd;
   }
 
-  play(payload: TtsSynthResult, signal: AbortSignal): Promise<void> {
+  async play(payload: TtsSynthResult, signal: AbortSignal): Promise<void> {
     if (signal.aborted) {
-      return Promise.resolve();
+      return;
     }
     if (payload.mime.startsWith("text/plain")) {
       const sentence = TEXT_DECODER.decode(payload.audio);
-      return this.playSystemSpeech(sentence, signal);
+      await this.playSystemSpeech(sentence, signal);
+    } else {
+      await this.playBinaryAudio(payload, signal);
     }
-    return this.playBinaryAudio(payload, signal);
+    if (!signal.aborted) this.onPlaybackEnd?.();
   }
 
   pause(): void {
@@ -387,7 +393,7 @@ export class ObsidianAudioSink implements AudioSink {
 
         utterance.onend = () => finish();
         utterance.onerror = (event: SpeechSynthesisErrorEvent) => {
-          if (signal.aborted || event.error === "canceled" || event.error === "interrupted") {
+          if (signal.aborted) {
             finish();
             return;
           }
@@ -538,7 +544,9 @@ export class SpeechPlayer {
   ) {
     this.config = { ...initialConfig };
     this.hooks = hooks;
-    this.sink = new ObsidianAudioSink(() => this.config, getWindow, options.speechWatchdogMs);
+    this.sink = new ObsidianAudioSink(() => this.config, getWindow, options.speechWatchdogMs, () => {
+      this.hooks.onSentenceEnd?.(this.playbackIndex, this.playbackSentences.length);
+    });
     this.queue = new PlaybackQueue({
       synthesize: (text, signal) => this.synthesizeSentence(text, signal),
       sink: this.sink,
@@ -547,7 +555,12 @@ export class SpeechPlayer {
       overflowPolicy: "drop-newest",
       onStateChange: (state) => this.hooks.onStateChange?.(state),
       onPlayStart: (text) => {
-        const found = this.playbackSentences.indexOf(text, this.playbackIndex + 1);
+        // pendingCount includes the active sentence, so a pre-play skip of an identical
+        // sentence still advances the cursor. Streamed Q&A may append to a running queue.
+        const headIndex = this.playbackSentences.length - this.pendingSentences.length - this.queue.pendingCount;
+        const found = this.playbackSentences[headIndex] === text
+          ? headIndex
+          : this.playbackSentences.indexOf(text, this.playbackIndex + 1);
         this.playbackIndex = found >= 0 ? found : this.playbackIndex + 1;
         this.hooks.onSentenceStart?.(text, this.playbackIndex, this.playbackSentences.length);
         this.refillQueue();
@@ -707,8 +720,14 @@ export class SpeechPlayer {
     return false;
   }
 
-  skipCurrent(): boolean {
-    return this.queue.skipCurrent();
+  skipCurrent(onSkipped?: (nextIndex: number | null) => void): boolean {
+    const pending = this.queue.pendingCount;
+    const skipped = this.queue.skipCurrent();
+    if (this.queue.pendingCount < pending) {
+      const remaining = this.pendingSentences.length + this.queue.pendingCount;
+      onSkipped?.(remaining === 0 ? null : this.playbackSentences.length - remaining);
+    }
+    return skipped;
   }
 
   waitUntilDrained(): Promise<void> {

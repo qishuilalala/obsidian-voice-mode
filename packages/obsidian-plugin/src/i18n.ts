@@ -111,6 +111,7 @@ const simplifiedChinese = {
   "Copy voice runtime status": "复制语音运行状态",
   "Voice runtime status copied to clipboard.": "语音运行状态已复制到剪贴板。",
   "Could not copy the status (clipboard unavailable).": "无法复制状态（剪贴板不可用）。",
+  "Could not save the read-aloud position.": "无法保存朗读位置。",
   "Resume read-aloud": "从上次位置继续朗读",
   "Nothing to resume for this note; reading from the beginning.": "这篇笔记没有可续读的位置，从头开始朗读。",
   "Open a note to export read-aloud audio.": "请打开一篇笔记再导出朗读音频。",

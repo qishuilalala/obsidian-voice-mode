@@ -71,8 +71,8 @@ export function insertDictatedText(
 export function extractReadableText(
   editor: Editor,
   options: ExtractReadableOptions = {},
+  selected = editor.getSelection(),
 ): string[] {
-  const selected = editor.getSelection();
   const rawSource = selected.trim().length > 0 ? selected : editor.getValue();
   if (!rawSource.trim()) {
     return [];
