@@ -1,6 +1,7 @@
 # 验收检查清单（QA Acceptance Checklist）
 
 > 自动化检查验证类型、逻辑与打包。下文的声学和内存数据来自各行标明的环境。Android 15 模拟器加载了 Obsidian 1.15.1 APK，iOS 27 模拟器加载了独立的 WKWebView 测试程序。这里没有实体手机或 iOS App Store 客户端的验收记录。
+> 首发四条用户路径（首次麦克风授权、听写回填、朗读、拒绝授权后恢复）的自动化与真机清单见[首次验收矩阵](first-run-acceptance-matrix.md)。
 
 ---
 

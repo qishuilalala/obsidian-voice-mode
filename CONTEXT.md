@@ -54,5 +54,6 @@ pnpm run check:all              # 依次编译共享包、检查类型、检查�
 | [docs/plan/master-plan.md](docs/plan/master-plan.md) | 实测基准、三波开源矩阵与 M0–M6 规划 |
 | [docs/adr/README.md](docs/adr/README.md) | ADR-0001 ~ 0005 架构决策索引 |
 | [docs/qa/acceptance-checklist.md](docs/qa/acceptance-checklist.md) | M0–M6 桌面真机、实网 MiMo、Android 15 模拟器 APK、iOS 27 模拟器 `WKWebView` 与跨宿主 `voice-daemon` 联调报告 |
+| [docs/qa/first-run-acceptance-matrix.md](docs/qa/first-run-acceptance-matrix.md) | 首发四条用户路径（首次授权/听写回填/朗读/拒绝后恢复）的桌面自动化与 iOS/Android 真机待验矩阵 |
 | [docs/distribution/launch-playbook.md](docs/distribution/launch-playbook.md) / [launch-kit.md](docs/distribution/launch-kit.md) | `community.obsidian.md` 提交流程自检、15 秒 Demo 分镜与全渠道首发定稿包 |
 | [SECURITY.md](SECURITY.md) | 隐私数据流、`SecretStorage` 边界、模型 SHA256 与 GPL 隔离声明 |

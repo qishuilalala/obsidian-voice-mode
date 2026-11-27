@@ -423,6 +423,77 @@ describe("VoiceModePlugin kokoro-daemon TTS and daemon ASR integration with < 1s
     }
   });
 
+  it("pauses and resumes read-aloud from the command palette and clears all read-aloud state on stop", async () => {
+    setupWindowEnv();
+    const turn = () => new Promise((resolve) => setImmediate(resolve));
+    let utterance;
+    window.speechSynthesis.speak = (current) => { utterance = current; };
+    const view = {
+      file: { path: "A.md" },
+      editor: { getValue: () => "甲。乙。", getSelection: () => "" },
+    };
+    const plugin = new VoiceModePlugin({
+      workspace: { getActiveViewOfType: () => view, on: () => ({}) },
+      vault: { adapter: {} },
+    }, { id: "voice-mode" });
+    try {
+      await plugin.onload();
+      plugin.settings.enableSubtitleOverlay = false;
+      const run = (id) => plugin._commands.find((command) => command.id === id).callback();
+
+      // Pause/skip without active playback must explain instead of silently doing nothing.
+      capturedNotices.length = 0;
+      run("pause-resume-read-aloud");
+      run("skip-read-aloud-sentence");
+      assert.deepEqual(capturedNotices, [
+        "Read-aloud is not currently active.",
+        "Read-aloud is not currently active.",
+      ]);
+
+      run("read-aloud");
+      await turn();
+      assert.equal(utterance.text, "甲。");
+      assert.equal(plugin.currentStatus, "speaking");
+      assert.equal(plugin.statusLabelEl.textContent, "Reading aloud");
+
+      // Pause from the command palette: playback suspends and the status bar tells the user why.
+      run("pause-resume-read-aloud");
+      await turn();
+      assert.equal(plugin.speechPlayer.state, "paused");
+      assert.equal(plugin.currentStatus, "speaking");
+      assert.equal(plugin.statusLabelEl.textContent, "Read-aloud paused");
+
+      // Pressing the same command resumes and the label returns to the reading state.
+      run("pause-resume-read-aloud");
+      await turn();
+      assert.equal(plugin.speechPlayer.state, "playing");
+      assert.equal(plugin.statusLabelEl.textContent, "Reading aloud");
+
+      // Stopping while paused must still tear down playback, the bookmark context and the status;
+      // a second stop is a harmless no-op with actionable guidance instead of silence.
+      run("pause-resume-read-aloud");
+      await turn();
+      assert.equal(plugin.speechPlayer.state, "paused");
+      capturedNotices.length = 0;
+      run("stop-read-aloud");
+      await turn();
+      assert.equal(plugin.speechPlayer.isActive, false);
+      assert.equal(plugin.currentStatus, "idle");
+      assert.equal(plugin.statusLabelEl.textContent, "Voice idle");
+      assert.ok(capturedNotices.includes("Read-aloud stopped."));
+      assert.deepEqual(plugin.settings.readAloudResume, { path: "A.md", sentenceIndex: 0 });
+
+      capturedNotices.length = 0;
+      run("stop-read-aloud");
+      assert.deepEqual(capturedNotices, ["Read-aloud is not currently playing."]);
+    } finally {
+      plugin.onunload();
+      delete globalThis.window;
+      delete globalThis.activeWindow;
+      delete globalThis.activeDocument;
+    }
+  });
+
   it("honors stop and note-switch settings during a pending VITS readiness check", async () => {
     setupWindowEnv();
     const turn = () => new Promise((resolve) => setImmediate(resolve));

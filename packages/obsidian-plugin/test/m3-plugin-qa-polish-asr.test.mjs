@@ -1612,3 +1612,224 @@ describe("ModelGuideModal (P0-4 first-run download guide)", () => {
   });
 });
 
+describe("First-run desktop dictation: microphone authorization, denial recovery, and editor backfill (M4 acceptance)", () => {
+  async function waitFor(predicate, label, timeoutMs = 2000) {
+    const deadline = Date.now() + timeoutMs;
+    while (!predicate()) {
+      if (Date.now() > deadline) {
+        throw new Error(`Timed out waiting for ${label}`);
+      }
+      await new Promise((resolve) => setTimeout(resolve, 10));
+    }
+  }
+
+  function createFakeOfflineWorker(recorder) {
+    return {
+      keepAlive: [],
+      setKeepAlive(value) {
+        this.keepAlive.push(value);
+      },
+      isLoaded() {
+        return false;
+      },
+      async ensureVadLoaded() {},
+      async ensureAsrLoaded() {},
+      async resetVad() {},
+      async processVad(chunk) {
+        let peak = 0;
+        for (const sample of chunk) {
+          const abs = Math.abs(sample);
+          if (abs > peak) peak = abs;
+        }
+        return { isSpeech: peak >= 0.05, speechEnded: false };
+      },
+      async transcribe(pcm) {
+        recorder.transcribeSamples.push(pcm.length);
+        return { text: recorder.transcript, durationMs: 640 };
+      },
+    };
+  }
+
+  it("guides the user after a first-attempt mic denial, resets to idle, and inserts the transcript on retry", async () => {
+    const hadWin = "window" in globalThis;
+    const hadActiveWin = "activeWindow" in globalThis;
+    const hadActiveDoc = "activeDocument" in globalThis;
+    const mockWin = Object.assign(Object.create(globalThis), {
+      require: createRequire(import.meta.url),
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+    });
+    globalThis.window = mockWin;
+    globalThis.activeWindow = mockWin;
+    globalThis.activeDocument = { activeElement: null, body: null };
+
+    const prevNavigator = Object.getOwnPropertyDescriptor(globalThis, "navigator");
+    const getUserMediaCalls = [];
+    Object.defineProperty(globalThis, "navigator", {
+      configurable: true,
+      value: {
+        mediaDevices: {
+          getSupportedConstraints: () => ({ echoCancellation: true }),
+          getUserMedia: async (constraints) => {
+            getUserMediaCalls.push(constraints);
+            throw new DOMException("Permission denied", "NotAllowedError");
+          },
+        },
+      },
+    });
+
+    const inserted = [];
+    const noteEditor = {
+      getSelection: () => "",
+      getValue: () => "",
+      replaceSelection: (text) => inserted.push(text),
+    };
+    const view = {
+      file: { path: "FirstRun.md" },
+      editor: noteEditor,
+      containerEl: { contains: () => false },
+    };
+    const app = {
+      workspace: {
+        on: () => ({}),
+        getActiveViewOfType: () => view,
+        getMostRecentLeaf: () => ({ view }),
+        getLeavesOfType: () => [{ view }],
+      },
+      vault: { adapter: {} },
+    };
+    const plugin = new VoiceModePlugin(app, { id: "voice-mode", version: "0.1.0" });
+
+    try {
+      await plugin.onload();
+      plugin.settings.asrEngine = "sensevoice-wasm";
+      plugin.settings.dictationMode = "single";
+      plugin.settings.endpointSilenceMs = 400;
+      plugin.settings.asrReplacements = [{ from: ["黑曜石"], to: "Obsidian" }];
+
+      const recorder = { transcript: "第一次授权后口述黑曜石笔记。", transcribeSamples: [] };
+      plugin.ensureDesktopModelManager = () => ({
+        checkStatus: async () => ({
+          ready: true,
+          vadReady: true,
+          senseVoiceReady: true,
+          wasmReady: true,
+          vitsReady: false,
+        }),
+      });
+      plugin.ensureSherpaWorkerClient = () => createFakeOfflineWorker(recorder);
+      const session = plugin.ensureOfflineDictationSession();
+      assert.ok(session, "desktop offline dictation session must be available");
+
+      // 1) First invocation: the OS mic prompt is denied. The user must get actionable guidance,
+      //    an error status (never a stuck "listening" state), no captured mic and no inserted text.
+      capturedNotices.length = 0;
+      await plugin.toggleDictation("single");
+      assert.equal(getUserMediaCalls.length, 1);
+      assert.equal(getUserMediaCalls[0].audio.autoGainControl, true);
+      assert.equal(session.state, "idle");
+      assert.equal(plugin.listening, false);
+      assert.equal(plugin.startingDictation, false);
+      assert.equal(plugin.isMicSessionActive(), false);
+      assert.equal(plugin.currentStatus, "error");
+      assert.equal(plugin.statusLabelEl.textContent, "Voice error");
+      assert.deepEqual(capturedNotices, [
+        "Microphone permission was denied. Grant microphone access to Obsidian in your OS privacy settings and try again.",
+      ]);
+      assert.deepEqual(inserted, []);
+
+      // 2) The user grants permission and runs the same command again. The mic opens, the spoken
+      //    sentence is transcribed and the finalized text lands in the active editor at the cursor.
+      let pushChunk = null;
+      let micStops = 0;
+      session.captureAudio = async ({ onChunk }) => {
+        pushChunk = onChunk;
+        return {
+          stop: async () => {
+            micStops += 1;
+            pushChunk = null;
+          },
+        };
+      };
+      capturedNotices.length = 0;
+      await plugin.toggleDictation("single");
+      assert.equal(getUserMediaCalls.length, 1, "retry must not trigger a second authorization prompt");
+      assert.equal(session.state, "listening");
+      assert.equal(plugin.currentStatus, "listening");
+      assert.equal(plugin.statusLabelEl.textContent, "Listening");
+      assert.deepEqual(capturedNotices, ["Offline dictation started (single utterance)."]);
+
+      const speech = new Float32Array(1600).fill(0.2);
+      const silence = new Float32Array(4000);
+      pushChunk(speech);
+      pushChunk(speech);
+      pushChunk(silence);
+      pushChunk(silence);
+      await waitFor(
+        () => inserted.length > 0 && plugin.currentStatus === "idle",
+        "finalized dictation insert",
+      );
+
+      assert.deepEqual(inserted, ["第一次授权后口述Obsidian笔记。"]);
+      assert.equal(recorder.transcribeSamples.length, 1);
+      assert.ok(
+        recorder.transcribeSamples[0] >= 6400,
+        `single utterance audio must carry the 640 ms pre-roll before transcription, got ${recorder.transcribeSamples[0]} samples`,
+      );
+      assert.equal(micStops, 1, "single-utterance endpoint must release the microphone");
+      assert.equal(session.state, "idle");
+      assert.equal(plugin.listening, false);
+      assert.equal(plugin.statusLabelEl.textContent, "Voice idle");
+    } finally {
+      plugin.onunload();
+      if (prevNavigator) {
+        Object.defineProperty(globalThis, "navigator", prevNavigator);
+      }
+      if (!hadWin) delete globalThis.window;
+      if (!hadActiveWin) delete globalThis.activeWindow;
+      if (!hadActiveDoc) delete globalThis.activeDocument;
+    }
+  });
+
+  it("ignores an empty transcript and reports the actionable notice when no editor can accept dictation", async () => {
+    const hadWin = "window" in globalThis;
+    const hadActiveWin = "activeWindow" in globalThis;
+    const hadActiveDoc = "activeDocument" in globalThis;
+    const mockWin = Object.assign(Object.create(globalThis), {
+      require: createRequire(import.meta.url),
+      setTimeout: globalThis.setTimeout.bind(globalThis),
+      clearTimeout: globalThis.clearTimeout.bind(globalThis),
+    });
+    globalThis.window = mockWin;
+    globalThis.activeWindow = mockWin;
+    globalThis.activeDocument = { activeElement: null, body: null };
+
+    const app = {
+      workspace: {
+        on: () => ({}),
+        getActiveViewOfType: () => null,
+        getMostRecentLeaf: () => null,
+        getLeavesOfType: () => [],
+      },
+      vault: { adapter: {} },
+    };
+    const plugin = new VoiceModePlugin(app, { id: "voice-mode", version: "0.1.0" });
+    try {
+      await plugin.onload();
+      capturedNotices.length = 0;
+      await plugin.processAndCommitDictation("   ");
+      assert.deepEqual(capturedNotices, [], "an empty transcript must not insert or notify");
+
+      await plugin.processAndCommitDictation("没有编辑器时的口述文本");
+      assert.deepEqual(capturedNotices, [
+        "No active editor or text input found for dictated text.",
+      ]);
+    } finally {
+      plugin.onunload();
+      if (!hadWin) delete globalThis.window;
+      if (!hadActiveWin) delete globalThis.activeWindow;
+      if (!hadActiveDoc) delete globalThis.activeDocument;
+    }
+  });
+});
+

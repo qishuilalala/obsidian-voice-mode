@@ -1,4 +1,4 @@
-# 当前恢复点（STATE · 2026-11-26）
+# 当前恢复点（STATE · 2026-11-27）
 
 > 本文件记录当前进度和下一步，保持在 120 行以内。硬件、模拟器和自动化检查的结果分别注明环境。
 
@@ -8,7 +8,7 @@
 - **仓库身份**：`qishuilalala/obsidian-voice-mode`（Obsidian 插件 ID `voice-mode`，`minAppVersion: 1.11.4`，`isDesktopOnly: false`）。
 - **验收环境**：桌面实测使用 Apple M2 Max / 32 GB、macOS `27.2.1`、Obsidian `1.15.1`（Electron `43.8.9` / Chromium `150.0.7871.250`）。Android 15 模拟器安装了 Obsidian `1.15.1` APK；iOS 27 模拟器使用独立的 WKWebView 测试程序。实体手机验证仍待进行。
 - **四仓集成**：母仓提供 `core` 和 `browser` 两个共享包。SillyTavern 和 daemon 各使用两包，DSH 使用 `core`。三个下游检出就位后，`pnpm run verify:matrix --require-all` 重新打包并逐一比较五份归档的 SHA-256。浏览器扩展使用 MIT 许可证。
-- **集成时的测量**：母仓 `main.js` 生产构建在 2026-11-26 快照为 `354,654 B`（约 `346.3 KiB`，预算 ≤1024 KiB）；三包测试数以 `pnpm test` 实测为准（2026-11-26 快照：**113 core + 53 browser + 61 plugin = 227 项**）。SillyTavern 共享代码占比在 2026-11-26 快照为 **73.40%**（gate 阈值 73.3%，历史 76.28% → 74.63% → 73.40%；M5 首次验收保留当时的 `75.05%`）。下文 M5 首次验收保留当时的 `75.05%`。
+- **集成时的测量**：母仓 `main.js` 生产构建在 2026-11-27 快照为 `356,674 B`（约 `348.3 KiB`，预算 ≤1024 KiB）；三包测试数以 `pnpm test` 实测为准（2026-11-27 快照：**113 core + 53 browser + 67 plugin = 233 项**）。SillyTavern 共享代码占比在 2026-11-26 快照为 **73.40%**（gate 阈值 73.3%，历史 76.28% → 74.63% → 73.40%；M5 首次验收保留当时的 `75.05%`）。下文 M5 首次验收保留当时的 `75.05%`。
 
 ## 里程碑验收记录
 
@@ -39,5 +39,6 @@
 | --- | --- |
 | [CONTEXT.md](../../CONTEXT.md) | 核心不变量、三包边界与常用命令 |
 | [docs/qa/acceptance-checklist.md](../qa/acceptance-checklist.md) | M0–M6 桌面真机、实网 MiMo、Android 15 模拟器 APK、iOS 27 模拟器 `WKWebView` 与 `voice-daemon` 联调报告 |
+| [docs/qa/first-run-acceptance-matrix.md](../qa/first-run-acceptance-matrix.md) | 首发四条用户路径的桌面自动化结果与 iOS/Android 真机待验清单（2026-11-27） |
 | [docs/distribution/launch-kit.md](../distribution/launch-kit.md) | 官方目录 PR、GitHub Release `0.1.0` 与全渠道首发定稿包 |
 | [docs/adr/README.md](../adr/README.md) | 架构决策记录（0001–0005） |
