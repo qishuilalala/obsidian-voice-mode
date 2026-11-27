@@ -397,12 +397,33 @@ export class VoiceModeSettingTab extends PluginSettingTab {
             },
           },
           {
+            name: t("Match voice language per sentence"),
+            desc: t(
+              "For Kokoro voices, switch to a matching-language voice when the note mixes Chinese and English.",
+            ),
+            control: {
+              type: "toggle",
+              key: "autoLanguageVoice",
+            },
+          },
+          {
             name: t("Personal vocabulary replacements"),
             desc: t("Map spoken aliases or homophones to exact domain terms or wikilinks during dictation."),
             render: (setting) => {
               setting.settingEl.empty();
               setting.settingEl.addClass("vm-setting-block");
               this.renderReplacementsEditor(setting.settingEl);
+            },
+          },
+          {
+            name: t("Pronunciation dictionary (read-aloud)"),
+            desc: t(
+              "Rewrite text before speech synthesis, e.g. \"API\" -> \"A P I\". Applied to read-aloud only.",
+            ),
+            render: (setting) => {
+              setting.settingEl.empty();
+              setting.settingEl.addClass("vm-setting-block");
+              this.renderPronunciationEditor(setting.settingEl);
             },
           },
           {
@@ -783,6 +804,8 @@ export class VoiceModeSettingTab extends PluginSettingTab {
         return settings.endpointSilenceMs;
       case "enableSubtitleOverlay":
         return settings.enableSubtitleOverlay;
+      case "autoLanguageVoice":
+        return settings.autoLanguageVoice;
       case "asrEndpointUrl":
         return settings.asrEndpointUrl;
       case "asrModel":
@@ -867,6 +890,11 @@ export class VoiceModeSettingTab extends PluginSettingTab {
       case "enableSubtitleOverlay":
         if (typeof value === "boolean") {
           settings.enableSubtitleOverlay = value;
+        }
+        break;
+      case "autoLanguageVoice":
+        if (typeof value === "boolean") {
+          settings.autoLanguageVoice = value;
         }
         break;
       case "asrEndpointUrl":
